@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Runner Starting..." << std::endl;
 
     // Parse args
-    const std::string gameDllPath = "Game.dll";
+    std::string gameDllPath = "Game.dll";
     double timeLimit = 0.0;
 
     for (int i = 1; i < argc; ++i) {
@@ -67,6 +67,9 @@ int main(int argc, char* argv[]) {
         if (arg == "--time-limit" && i + 1 < argc) {
             timeLimit = std::stod(argv[i + 1]);
             i++; // Skip next arg
+        } else if (arg[0] != '-') {
+            // Allow overriding via command line
+            gameDllPath = arg;
         }
     }
 

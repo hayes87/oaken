@@ -17,5 +17,5 @@ find_package(fastgltf CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 
 add_subdirectory(Engine)
-add_subdirectory(Game)
 add_subdirectory(Runner)
+add_subdirectory(Game)
