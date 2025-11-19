@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Runner Starting..." << std::endl;
 
     // Parse args
-    std::string gameDllPath = "";
+    const std::string gameDllPath = "Game.dll";
     double timeLimit = 0.0;
 
     for (int i = 1; i < argc; ++i) {
@@ -67,15 +67,10 @@ int main(int argc, char* argv[]) {
         if (arg == "--time-limit" && i + 1 < argc) {
             timeLimit = std::stod(argv[i + 1]);
             i++; // Skip next arg
-        } else if (gameDllPath.empty() && arg[0] != '-') {
-            gameDllPath = arg;
         }
     }
 
-    if (gameDllPath.empty()) {
-        std::cerr << "Usage: Runner.exe <path_to_game_dll> [--time-limit N]" << std::endl;
-        return -1;
-    }
+    std::cout << "Loading Game Module: " << gameDllPath << std::endl;
 
     Engine engine;
     if (timeLimit > 0.0) {
