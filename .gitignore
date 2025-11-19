@@ -1,0 +1,25 @@
+# Build directories
+Build/
+vcpkg_installed/
+vcpkg/buildtrees/
+vcpkg/downloads/
+vcpkg/packages/
+vcpkg/installed/
+
+# IDE settings
+.vs/
+.vscode/
+*.user
+
+# Binary files
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+
+# OS generated
+.DS_Store
+Thumbs.db
