@@ -3,9 +3,19 @@
 #include <spdlog/spdlog.h>
 #include <memory>
 
+#ifdef _WIN32
+    #ifdef OAKEN_EXPORT
+        #define OAKEN_API __declspec(dllexport)
+    #else
+        #define OAKEN_API __declspec(dllimport)
+    #endif
+#else
+    #define OAKEN_API
+#endif
+
 namespace Core {
 
-    class Log {
+    class OAKEN_API Log {
     public:
         static void Init();
 

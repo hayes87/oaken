@@ -1,4 +1,4 @@
-add_library(OakenEngine STATIC
+add_library(OakenEngine SHARED
     Source/Engine.h
     Source/Engine.cpp
     Source/Core/HashedString.h
@@ -28,6 +28,10 @@ add_library(OakenEngine STATIC
     Source/Systems/EditorSystem.h
     Source/Systems/EditorSystem.cpp
 )
+
+# Auto-export all symbols for DLL creation on Windows
+set_target_properties(OakenEngine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+target_compile_definitions(OakenEngine PRIVATE OAKEN_EXPORT)
 
 target_include_directories(OakenEngine PUBLIC Source)
 target_include_directories(OakenEngine PRIVATE ${SOL2_INCLUDE_DIRS})

@@ -25,6 +25,8 @@ public:
 
     void SetTimeLimit(double seconds) { m_TimeLimit = seconds; }
 
+    Core::GameContext& GetContext() { return m_Context; }
+
 private:
     void Update(double dt);
     void Render(double alpha);

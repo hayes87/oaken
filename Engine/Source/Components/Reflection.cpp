@@ -25,13 +25,6 @@ namespace Components {
             .member<glm::vec3>("rotation")
             .member<glm::vec3>("scale");
 
-        world.component<AttributeSet>()
-            .member<float>("health")
-            .member<float>("maxHealth")
-            .member<float>("mana")
-            .member<float>("maxMana")
-            .member<float>("speed");
-
         world.component<MeshComponent>()
             .member<uint32_t>("meshId")
             .member<uint32_t>("materialId");

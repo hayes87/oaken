@@ -68,8 +68,7 @@ bool Engine::Init() {
     
     // Create a test entity
     auto e = m_World->entity("Player")
-        .set<Transform>({ {0,0,0}, {0,0,0}, {1,1,1} })
-        .set<AttributeSet>({ 100, 100, 50, 100, 10 }); // 50 Mana
+        .set<Transform>({ {0,0,0}, {0,0,0}, {1,1,1} });
     
     return true;
 }
