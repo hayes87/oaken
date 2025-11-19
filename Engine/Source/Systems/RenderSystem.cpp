@@ -3,6 +3,7 @@
 #include "../Platform/Window.h"
 #include <fstream>
 #include <vector>
+#include <filesystem>
 
 namespace Systems {
 
@@ -21,7 +22,16 @@ namespace Systems {
 
     // Helper to load SPIR-V
     static std::vector<uint8_t> LoadShader(const std::string& filename) {
-        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+        std::string finalPath = filename;
+        if (!std::filesystem::exists(finalPath)) {
+            // Try looking in Engine/ folder (for development from root)
+            std::string enginePath = "Engine/" + filename;
+            if (std::filesystem::exists(enginePath)) {
+                finalPath = enginePath;
+            }
+        }
+
+        std::ifstream file(finalPath, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
             LOG_CORE_ERROR("Failed to open shader file: {}", filename);
             return {};
