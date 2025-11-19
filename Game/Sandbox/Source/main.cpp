@@ -1,35 +1,36 @@
 #include "Engine.h"
 #include "GamePlaySystem.h"
 #include "GameComponents.h"
-#include <string>
+#include "Core/Log.h"
 #include <memory>
 
-int main(int argc, char* argv[]) {
-    Engine engine;
-    
-    if (engine.Init()) {
-        // Initialize Game Systems
-        auto gamePlaySystem = std::make_unique<GamePlaySystem>(engine.GetContext());
-        gamePlaySystem->Init();
+// Global state to keep alive between reloads if needed, 
+// but for now we just re-init.
+std::unique_ptr<GamePlaySystem> g_GamePlaySystem;
 
-        // Register Game Components
-        engine.GetContext().World->component<AttributeSet>();
+GAME_EXPORT void GameInit(Engine& engine) {
+    LOG_INFO("GameInit: Initializing Sandbox Game Module");
 
-        // Create a test entity with AttributeSet
+    // Register Game Components
+    // Note: In a real hot-reload scenario, we should check if already registered
+    // or Flecs handles it gracefully (it usually does).
+    engine.GetContext().World->component<AttributeSet>();
+
+    // Initialize Game Systems
+    g_GamePlaySystem = std::make_unique<GamePlaySystem>(engine.GetContext());
+    g_GamePlaySystem->Init();
+
+    // Create a test entity with AttributeSet if it doesn't exist
+    // For hot reload, we might want to avoid creating duplicates.
+    // Simple check:
+    if (engine.GetContext().World->count<AttributeSet>() == 0) {
         engine.GetContext().World->entity("Player")
             .set<AttributeSet>({100.0f, 100.0f, 100.0f, 100.0f, 10.0f});
-
-        // Simple argument parsing
-        for (int i = 1; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "--time-limit" && i + 1 < argc) {
-                double limit = std::stod(argv[i + 1]);
-                engine.SetTimeLimit(limit);
-            }
-        }
-
-        engine.Run();
     }
-    
-    return 0;
+}
+
+GAME_EXPORT void GameShutdown(Engine& engine) {
+    LOG_INFO("GameShutdown: Unloading Sandbox Game Module");
+    g_GamePlaySystem.reset();
+    // We don't unregister components usually as that clears data
 }

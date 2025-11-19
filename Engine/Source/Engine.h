@@ -14,6 +14,12 @@
 #include "Systems/ScriptSystem.h"
 #include "Systems/EditorSystem.h"
 
+#ifdef _WIN32
+    #define GAME_EXPORT extern "C" __declspec(dllexport)
+#else
+    #define GAME_EXPORT extern "C"
+#endif
+
 class Engine {
 public:
     Engine();
@@ -21,6 +27,7 @@ public:
 
     bool Init();
     void Run();
+    bool Step(); // Returns false if engine should close
     void Shutdown();
 
     void SetTimeLimit(double seconds) { m_TimeLimit = seconds; }
@@ -39,6 +46,11 @@ private:
     
     Core::GameContext m_Context;
     
+    // Time keeping
+    double m_Accumulator = 0.0;
+    double m_CurrentTime = 0.0;
+    double m_TotalTime = 0.0;
+
     // Systems
     std::unique_ptr<Systems::AbilitySystem> m_AbilitySystem;
     std::unique_ptr<Systems::RenderSystem> m_RenderSystem;
