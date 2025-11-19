@@ -13,12 +13,12 @@ set_target_properties(Sandbox PROPERTIES OUTPUT_NAME "Game")
 # Ensure Runner is built before we try to copy it
 add_dependencies(Sandbox Runner)
 
-# Copy Runner.exe to the Game output directory so it sits next to Game.dll
+# Copy Runner.exe to the Game output directory and rename it to Sandbox.exe
 add_custom_command(TARGET Sandbox POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:Runner>
-    $<TARGET_FILE_DIR:Sandbox>
-    COMMENT "Copying Runner to Game Directory"
+    $<TARGET_FILE_DIR:Sandbox>/Sandbox.exe
+    COMMENT "Copying Runner to Game Directory as Sandbox.exe"
 )
 
 # Copy Runtime DLLs (SDL3, flecs, fastgltf, etc.) to Game Directory
