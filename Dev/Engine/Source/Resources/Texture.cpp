@@ -63,18 +63,49 @@ namespace Resources {
         SDL_GPUTexture* newTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
         
         if (newTexture) {
-             // Upload data (Simplified: We need a transfer buffer, similar to RenderDevice::CreateTexture)
-             // This is getting complicated to duplicate. 
-             // Ideally ResourceManager should handle the "Loading" part and pass the GPU resource to the Texture.
-             // But for now, let's just assume we can use the RenderDevice if we had access to it.
-             // Wait, Texture doesn't have access to RenderDevice helper methods, only the raw SDL_GPUDevice.
-             
-             // Let's cheat slightly and move the "LoadTexture" logic in ResourceManager to be reusable, 
-             // OR just keep the logic in ResourceManager for now but dispatch via type.
-             // But the user asked for a "Generic Solution".
-             // The best generic solution is: Resource::Reload() calls ResourceManager::LoadXXX(m_Path) and updates itself.
-             
-             return false; // Placeholder, we will implement this properly in ResourceManager for now.
+            // Upload data using transfer buffer
+            uint32_t size = header->width * header->height * 4; // RGBA8
+
+            SDL_GPUTransferBufferCreateInfo transferInfo = {};
+            transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            transferInfo.size = size;
+
+            SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_Device, &transferInfo);
+
+            if (transferBuffer) {
+                void* map = SDL_MapGPUTransferBuffer(m_Device, transferBuffer, false);
+                if (map) {
+                    SDL_memcpy(map, pixelData, size);
+                    SDL_UnmapGPUTransferBuffer(m_Device, transferBuffer);
+
+                    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(m_Device);
+                    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmd);
+
+                    SDL_GPUTextureTransferInfo source = {};
+                    source.transfer_buffer = transferBuffer;
+                    source.offset = 0;
+                    source.pixels_per_row = header->width;
+                    source.rows_per_layer = header->height;
+
+                    SDL_GPUTextureRegion destination = {};
+                    destination.texture = newTexture;
+                    destination.w = header->width;
+                    destination.h = header->height;
+                    destination.d = 1;
+
+                    SDL_UploadToGPUTexture(copyPass, &source, &destination, false);
+                    SDL_EndGPUCopyPass(copyPass);
+                    SDL_SubmitGPUCommandBuffer(cmd);
+
+                    SDL_ReleaseGPUTransferBuffer(m_Device, transferBuffer);
+
+                    // Success! Update the texture object
+                    UpdateTexture(newTexture, header->width, header->height);
+                    return true;
+                }
+                SDL_ReleaseGPUTransferBuffer(m_Device, transferBuffer);
+            }
+            SDL_ReleaseGPUTexture(m_Device, newTexture);
         }
         return false;
     }
