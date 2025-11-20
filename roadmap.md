@@ -15,14 +15,19 @@
     - [x] **Generic Reloading**: Engine detects cooked file changes and reloads resources at runtime.
     - [x] **Runtime Update**: Textures update in-game without restarting.
 
-## Phase 3: Rendering Foundation (Current Focus)
-- [ ] **Batch Rendering**:
-    - [ ] Implement `SpriteBatch` to group draw calls.
-    - [ ] Optimize `RenderSystem` to use a single vertex buffer for multiple sprites.
-- [ ] **Mesh Support**:
+## Phase 3: 3D Character Pipeline (Priority)
+- [ ] **Mesh Support (Static)**:
     - [ ] Implement `CookMesh` in AssetCooker (glTF -> .oakmesh).
     - [ ] Implement `Mesh` resource class and `Reload()` logic.
-    - [ ] Render 3D meshes in `RenderSystem`.
+    - [ ] Render static 3D meshes in `RenderSystem`.
+- [ ] **Skeletal Animation**:
+    - [ ] **Asset Import**: Extract Skeleton (Joints) and Animation Clips from glTF.
+    - [ ] **Runtime**: Implement `Animator` component and `AnimationSystem`.
+    - [ ] **Skinning**: Implement Vertex Shader skinning (GPU-based bone transforms).
+- [ ] **Character Controller**:
+    - [ ] Implement `CharacterController` component (Velocity, State).
+    - [ ] Map Input to Character Movement.
+    - [ ] Implement `CameraFollow` system (Third-person view).
 
 ## Phase 4: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:
@@ -31,19 +36,30 @@
     - [ ] **ECS Multithreading**: Configure Flecs worker threads and component locking.
 - [ ] **Physics Integration (Jolt)**:
     - [ ] Initialize Jolt Physics system (utilizing the Job System).
-    - [ ] Create `RigidBody` and `Collider` components.
+    - [ ] Create `RigidBody` and `Collider` components (Capsule for Character).
     - [ ] Implement `PhysicsSystem::Step` to sync ECS Transforms <-> Jolt Bodies.
-    - [ ] Debug Drawing for colliders.
+    - [ ] Implement Character Virtual Controller (Jolt feature for responsive movement).
+- [ ] **AI & Navigation**:
+    - [ ] **Navigation Mesh**: Generate NavMesh from level geometry (Recast).
+    - [ ] **Pathfinding**: Implement A* or Detour for path calculation.
+    - [ ] **Behavior**: Implement Behavior Trees for AI logic.
 - [ ] **Scripting (Lua)**:
     - [ ] Initialize Lua state in `ScriptSystem` (currently a placeholder).
     - [ ] Bind Core Types: `Entity`, `Transform`, `Vector3`.
     - [ ] Implement `ScriptComponent` to attach `.lua` files to entities.
     - [ ] Execute `OnUpdate` in Lua scripts.
-- [ ] **AI & Navigation**:
-    - [ ] **Pathfinding**: Implement A* or integrate a navigation library (e.g., Recast/Detour).
-    - [ ] **Behavior**: Implement Behavior Trees or State Machines for AI logic.
 
-## Phase 5: Editor & Tools
+## Phase 5: Rendering Optimization & Polish
+- [ ] **Batch Rendering**:
+    - [ ] Implement `SpriteBatch` to group 2D draw calls (UI/Sprites).
+    - [ ] Optimize `RenderSystem` to use a single vertex buffer for multiple sprites.
+- [ ] **Material System**:
+    - [ ] Shader reflection to generate UI for material properties.
+- [ ] **Lighting**:
+    - [ ] Directional, Point, and Spot lights.
+    - [ ] PBR (Physically Based Rendering) pipeline.
+
+## Phase 6: Editor & Tools
 - [ ] **Entity Inspector**:
     - [ ] Hierarchy Panel: List all entities in the ECS world.
     - [ ] Properties Panel: View and edit component data (Transform, etc.) using ImGui.
