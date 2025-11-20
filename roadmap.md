@@ -5,7 +5,38 @@
 - [x] **Hot Reloading**: Implemented `Runner` executable to reload Game DLL on the fly.
 - [x] **Build System**: CMake setup with automatic dependency management (vcpkg) and DLL copying.
 
-## Phase 2: Editor & Tools (Current Focus)
+## Phase 2: Asset Pipeline (Completed)
+- [x] **Asset Pre-processing (Cooking)**:
+    - [x] **Architecture**: Separate `AssetCooker` process.
+    - [x] **Atomic Writes**: Cooker writes to `.tmp` and renames to prevent locking.
+    - [x] **Texture Cooking**: Load `.png`/`.jpg` and write custom `.oaktex` binary format.
+- [x] **Hot Reloading Pipeline**:
+    - [x] **Launcher**: File watcher detects changes and triggers Cooker.
+    - [x] **Generic Reloading**: Engine detects cooked file changes and reloads resources at runtime.
+    - [x] **Runtime Update**: Textures update in-game without restarting.
+
+## Phase 3: Rendering Foundation (Current Focus)
+- [ ] **Batch Rendering**:
+    - [ ] Implement `SpriteBatch` to group draw calls.
+    - [ ] Optimize `RenderSystem` to use a single vertex buffer for multiple sprites.
+- [ ] **Mesh Support**:
+    - [ ] Implement `CookMesh` in AssetCooker (glTF -> .oakmesh).
+    - [ ] Implement `Mesh` resource class and `Reload()` logic.
+    - [ ] Render 3D meshes in `RenderSystem`.
+
+## Phase 4: Gameplay Systems (Next Up)
+- [ ] **Physics Integration (Jolt)**:
+    - [ ] Initialize Jolt Physics system (currently a placeholder).
+    - [ ] Create `RigidBody` and `Collider` components.
+    - [ ] Implement `PhysicsSystem::Step` to sync ECS Transforms <-> Jolt Bodies.
+    - [ ] Debug Drawing for colliders.
+- [ ] **Scripting (Lua)**:
+    - [ ] Initialize Lua state in `ScriptSystem` (currently a placeholder).
+    - [ ] Bind Core Types: `Entity`, `Transform`, `Vector3`.
+    - [ ] Implement `ScriptComponent` to attach `.lua` files to entities.
+    - [ ] Execute `OnUpdate` in Lua scripts.
+
+## Phase 5: Editor & Tools
 - [ ] **Entity Inspector**:
     - [ ] Hierarchy Panel: List all entities in the ECS world.
     - [ ] Properties Panel: View and edit component data (Transform, etc.) using ImGui.
@@ -16,57 +47,13 @@
 - [ ] **Gizmos**:
     - [ ] Visual tools to move/rotate/scale entities in the viewport (using `ImGuizmo`).
 
-## Phase 3: Asset Management (Next Up)
-- [ ] **Asset Pre-processing (Cooking)**:
-    - [x] **Architecture**: Separate `AssetCooker` process.
-    - [x] **Atomic Writes**: Cooker writes to `.tmp` and renames to prevent locking.
-    - [x] **Texture Cooking**:
-        - [x] Load `.png`/`.jpg` using `stb_image`.
-        - [x] Write custom `.oaktex` binary format (Header + Pixels).
-    - [ ] **Mesh Cooking**:
-        - [ ] Load `.gltf` using `fastgltf`.
-        - [ ] Write custom `.oakmesh` binary format.
-- [ ] **Asset Bundling**:
-    - [ ] Pack processed assets into large binary archives (Asset Bundles) for faster IO.
-    - [ ] Virtual File System to read from Bundles or loose files (for dev iteration).
-- [ ] **Resource Manager**:
-    - [x] Basic `ResourceManager` class.
-    - [x] Safe `ReadFile` (Read-Close pattern).
-    - [x] **Texture Resource**:
-        - [x] `Texture` class inheriting from `Resource`.
-        - [x] Load `.oaktex` files and upload to SDL3 GPU.
-    - [ ] **Mesh Resource**:
-        - [ ] `Mesh` class inheriting from `Resource`.
-        - [ ] Load `.oakmesh` files and upload to SDL3 GPU.
-    - [ ] Async loading support.
-    - [ ] Hot Reloading (File Watcher).
-
-## Phase 4: Scene Management
+## Phase 6: Scene Management
 - [ ] **Serialization**:
     - [ ] Save ECS World to JSON/Binary (Scene files).
     - [ ] Load Scene files on startup.
 - [ ] **Scene Graph**:
     - [ ] Parent/Child relationships in ECS (Flecs supports this natively).
     - [ ] Transform propagation (Parent moves -> Child moves).
-
-## Phase 5: Physics Integration
-- [ ] **Jolt Physics Setup**:
-    - [ ] Initialize Jolt Physics system.
-    - [ ] Create `RigidBody` and `Collider` components.
-- [ ] **Physics System**:
-    - [ ] Sync ECS Transform -> Jolt Body (Pre-Physics).
-    - [ ] Step Simulation.
-    - [ ] Sync Jolt Body -> ECS Transform (Post-Physics).
-- [ ] **Debug Drawing**:
-    - [ ] Draw wireframe colliders for debugging.
-
-## Phase 6: Scripting (Lua)
-- [ ] **Lua Integration**:
-    - [ ] Bind ECS functions to Lua (Create Entity, Add Component).
-    - [ ] Bind Math types (Vector3, etc.).
-- [ ] **Script Component**:
-    - [ ] Attach `.lua` scripts to entities.
-    - [ ] Call `OnStart`, `OnUpdate` from C++.
 
 ## Phase 7: Rendering (Advanced)
 - [ ] **Material System**:
@@ -76,3 +63,4 @@
     - [ ] PBR (Physically Based Rendering) pipeline.
 - [ ] **Post Processing**:
     - [ ] Bloom, Tone Mapping, Color Correction.
+
