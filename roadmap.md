@@ -24,9 +24,13 @@
     - [ ] Implement `Mesh` resource class and `Reload()` logic.
     - [ ] Render 3D meshes in `RenderSystem`.
 
-## Phase 4: Gameplay Systems (Next Up)
+## Phase 4: Core Systems & Gameplay (Next Up)
+- [ ] **Multithreading Foundation**:
+    - [ ] **Job System**: Implement a task scheduler for parallel execution (required for Jolt/AI).
+    - [ ] **Thread Safety**: Ensure `ResourceManager` and `EventBus` are thread-safe.
+    - [ ] **ECS Multithreading**: Configure Flecs worker threads and component locking.
 - [ ] **Physics Integration (Jolt)**:
-    - [ ] Initialize Jolt Physics system (currently a placeholder).
+    - [ ] Initialize Jolt Physics system (utilizing the Job System).
     - [ ] Create `RigidBody` and `Collider` components.
     - [ ] Implement `PhysicsSystem::Step` to sync ECS Transforms <-> Jolt Bodies.
     - [ ] Debug Drawing for colliders.
@@ -35,6 +39,9 @@
     - [ ] Bind Core Types: `Entity`, `Transform`, `Vector3`.
     - [ ] Implement `ScriptComponent` to attach `.lua` files to entities.
     - [ ] Execute `OnUpdate` in Lua scripts.
+- [ ] **AI & Navigation**:
+    - [ ] **Pathfinding**: Implement A* or integrate a navigation library (e.g., Recast/Detour).
+    - [ ] **Behavior**: Implement Behavior Trees or State Machines for AI logic.
 
 ## Phase 5: Editor & Tools
 - [ ] **Entity Inspector**:
