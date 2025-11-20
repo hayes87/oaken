@@ -17,12 +17,13 @@ Engine::Engine() {
     LOG_CORE_INFO("Initializing Oaken Engine...");
 
     m_EventBus = std::make_unique<Core::EventBus>();
-    m_World = std::make_unique<flecs::world>();
+    m_SceneManager = std::make_unique<Core::SceneManager>();
     m_Input = std::make_unique<Platform::Input>();
     m_ResourceManager = std::make_unique<Resources::ResourceManager>();
     
     // Setup Context
-    m_Context.World = m_World.get();
+    // World will be set when a scene is loaded
+    m_Context.World = nullptr;
     m_Context.Events = m_EventBus.get();
 
     // Create Systems
@@ -30,6 +31,7 @@ Engine::Engine() {
     m_PhysicsSystem = std::make_unique<Systems::PhysicsSystem>(m_Context);
     m_ScriptSystem = std::make_unique<Systems::ScriptSystem>(m_Context);
     m_EditorSystem = std::make_unique<Systems::EditorSystem>(m_Context);
+    m_TransformSystem = std::make_unique<Systems::TransformSystem>(m_Context);
     // RenderSystem needs RenderDevice, created in Init
 }
 
@@ -57,21 +59,24 @@ bool Engine::Init() {
 
     m_Input->Init(m_EventBus.get());
     
-    // Register Components
-    Components::RegisterReflection(*m_World);
+    // Create and Load Scene
+    auto scene = std::make_unique<Core::Scene>();
+    m_SceneManager->LoadScene(std::move(scene));
+    m_Context.World = &m_SceneManager->GetActiveScene()->GetWorld();
 
     // Init Systems
     m_AbilitySystem->Init();
     m_PhysicsSystem->Init();
     m_ScriptSystem->Init();
     m_EditorSystem->Init();
+    m_TransformSystem->Init();
     
     // Map some test input
     m_Input->MapAction("Cast_Slot_1"_hs, SDL_SCANCODE_SPACE);
     
     // Create a test entity
-    auto e = m_World->entity("Player")
-        .set<Transform>({ {0,0,0}, {0,0,0}, {1,1,1} });
+    auto e = m_Context.World->entity("Player")
+        .set<LocalTransform>({ {0,0,0}, {0,0,0}, {1,1,1} });
     
     // Initialize time
     m_CurrentTime = SDL_GetTicks() / 1000.0;
@@ -138,7 +143,7 @@ bool Engine::Step() {
         m_RenderSystem->DrawScene(alpha);
         
         if (m_EditorMode) {
-            m_EditorSystem->DrawUI(m_World.get());
+            m_EditorSystem->DrawUI(m_Context.World);
         }
         
         m_RenderSystem->EndFrame();
@@ -157,7 +162,7 @@ void Engine::Update(double dt) {
     m_PhysicsSystem->Step(dt);
     m_AbilitySystem->TickCooldowns(dt);
     m_ScriptSystem->Update(dt);
-    m_World->progress((float)dt);
+    m_SceneManager->Update(dt);
 }
 
 void Engine::Render(double alpha) {
@@ -171,10 +176,12 @@ void Engine::Shutdown() {
     m_PhysicsSystem.reset();
     m_ScriptSystem.reset();
     m_EditorSystem.reset();
+    m_TransformSystem.reset();
     m_RenderSystem.reset();
 
-    // 2. Destroy World (Releases components, which hold references to Textures)
-    m_World.reset();
+    // 2. Destroy SceneManager (Destroys Scene and World)
+    m_SceneManager.reset();
+    m_Context.World = nullptr;
 
     // 3. Destroy ResourceManager (Releases cached Textures)
     m_ResourceManager.reset();

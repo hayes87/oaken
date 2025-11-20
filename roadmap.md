@@ -16,14 +16,14 @@
     - [x] **Runtime Update**: Textures update in-game without restarting.
 
 ## Phase 3: Scene System (Foundation)
-- [ ] **Scene Architecture**:
-    - [ ] Create `Scene` class to manage entities and systems.
-    - [ ] Implement `SceneManager` to handle scene switching (e.g., MainMenu -> GameLevel).
-- [ ] **Transform Hierarchy**:
-    - [ ] Split `Transform` into `LocalTransform` and `WorldTransform`.
-    - [ ] Implement `TransformSystem` to propagate changes from Parent to Children (Scene Graph).
+- [x] **Scene Architecture**:
+    - [x] Create `Scene` class to manage entities and systems.
+    - [x] Implement `SceneManager` to handle scene switching (e.g., MainMenu -> GameLevel).
+- [x] **Transform Hierarchy**:
+    - [x] Split `Transform` into `LocalTransform` and `WorldTransform`.
+    - [x] Implement `TransformSystem` to propagate changes from Parent to Children (Scene Graph).
 - [ ] **Serialization**:
-    - [ ] **Text Format (Dev)**: Integrate `nlohmann-json` for human-readable `.oakscene` files (Git-friendly).
+    - [x] **Text Format (Dev)**: Integrate `nlohmann-json` for human-readable `.oakscene` files (Git-friendly).
     - [ ] **Binary Format (Runtime)**: Implement `CookScene` to convert `.oakscene` -> `.oaklevel` (Binary) for fast loading.
     - [ ] **Serializer**: Implement `SceneSerializer` to handle both formats.
 

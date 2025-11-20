@@ -6,6 +6,7 @@
 #include "Platform/Input.h"
 #include "Platform/RenderDevice.h"
 #include "Resources/ResourceManager.h"
+#include "Scene/SceneManager.h"
 #include <flecs.h>
 #include <memory>
 
@@ -14,6 +15,7 @@
 #include "Systems/PhysicsSystem.h"
 #include "Systems/ScriptSystem.h"
 #include "Systems/EditorSystem.h"
+#include "Systems/TransformSystem.h"
 
 #ifdef _WIN32
     #define GAME_EXPORT extern "C" __declspec(dllexport)
@@ -44,7 +46,7 @@ private:
     std::unique_ptr<Platform::Input> m_Input;
     std::unique_ptr<Platform::RenderDevice> m_RenderDevice;
     std::unique_ptr<Resources::ResourceManager> m_ResourceManager;
-    std::unique_ptr<flecs::world> m_World;
+    std::unique_ptr<Core::SceneManager> m_SceneManager;
     std::unique_ptr<Core::EventBus> m_EventBus;
     
     Core::GameContext m_Context;
@@ -60,6 +62,7 @@ private:
     std::unique_ptr<Systems::PhysicsSystem> m_PhysicsSystem;
     std::unique_ptr<Systems::ScriptSystem> m_ScriptSystem;
     std::unique_ptr<Systems::EditorSystem> m_EditorSystem;
+    std::unique_ptr<Systems::TransformSystem> m_TransformSystem;
 
     bool m_IsRunning = false;
     bool m_EditorMode = true;

@@ -166,15 +166,11 @@ namespace Systems {
         if (pass) {
             SDL_BindGPUGraphicsPipeline(pass, m_Pipeline);
             
-            m_Context.World->query<Transform, SpriteComponent>()
-                .each([&](flecs::entity e, Transform& t, SpriteComponent& s) {
+            m_Context.World->query<WorldTransform, SpriteComponent>()
+                .each([&](flecs::entity e, WorldTransform& t, SpriteComponent& s) {
                 if (s.texture) {
-                    // Calculate Model Matrix
-                    glm::mat4 model = glm::mat4(1.0f);
-                    model = glm::translate(model, t.position);
-                    // Rotation (assuming Z axis for 2D)
-                    model = glm::rotate(model, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
-                    model = glm::scale(model, t.scale);
+                    // Use computed World Matrix
+                    glm::mat4 model = t.matrix;
 
                     // Push Uniform Data (Slot 0, Set 1 in shader)
                     // Note: SDL3 GPU maps slot index to binding index usually.

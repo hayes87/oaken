@@ -20,10 +20,12 @@ namespace Components {
             .member<float>("y")
             .member<float>("z");
 
-        world.component<Transform>()
+        world.component<LocalTransform>()
             .member<glm::vec3>("position")
             .member<glm::vec3>("rotation")
             .member<glm::vec3>("scale");
+
+        world.component<WorldTransform>();
 
         world.component<MeshComponent>()
             .member<uint32_t>("meshId")

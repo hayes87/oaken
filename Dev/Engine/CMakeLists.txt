@@ -21,10 +21,18 @@ add_library(OakenEngine SHARED
     Source/Resources/ResourceManager.cpp
     Source/Resources/Texture.h
     Source/Resources/Texture.cpp
+    Source/Scene/Scene.h
+    Source/Scene/Scene.cpp
+    Source/Scene/SceneManager.h
+    Source/Scene/SceneManager.cpp
+    Source/Scene/SceneSerializer.h
+    Source/Scene/SceneSerializer.cpp
     Source/Systems/AbilitySystem.h
     Source/Systems/AbilitySystem.cpp
     Source/Systems/RenderSystem.h
     Source/Systems/RenderSystem.cpp
+    Source/Systems/TransformSystem.h
+    Source/Systems/TransformSystem.cpp
     Source/Systems/PhysicsSystem.h
     Source/Systems/PhysicsSystem.cpp
     Source/Systems/ScriptSystem.h

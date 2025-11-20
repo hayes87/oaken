@@ -21,8 +21,8 @@ void GamePlaySystem::Init() {
     }
 
     // Bounce System
-    m_Context.World->system<Transform, SpriteComponent>()
-        .each([](flecs::entity e, Transform& t, SpriteComponent& s) {
+    m_Context.World->system<LocalTransform, SpriteComponent>()
+        .each([](flecs::entity e, LocalTransform& t, SpriteComponent& s) {
             float time = SDL_GetTicks() / 1000.0f;
             t.position.y = std::sin(time * 2.0f) * 0.5f;
         });
