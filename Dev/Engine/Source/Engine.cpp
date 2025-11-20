@@ -153,6 +153,7 @@ void Engine::Run() {
 }
 
 void Engine::Update(double dt) {
+    m_ResourceManager->Update();
     m_PhysicsSystem->Step(dt);
     m_AbilitySystem->TickCooldowns(dt);
     m_ScriptSystem->Update(dt);
@@ -165,10 +166,22 @@ void Engine::Render(double alpha) {
 }
 
 void Engine::Shutdown() {
-    if (m_RenderDevice) {
-        m_RenderDevice->Shutdown();
-    }
-    if (m_Window) {
-        m_Window->Shutdown();
-    }
+    // 1. Destroy Systems (Release references to World/Context)
+    m_AbilitySystem.reset();
+    m_PhysicsSystem.reset();
+    m_ScriptSystem.reset();
+    m_EditorSystem.reset();
+    m_RenderSystem.reset();
+
+    // 2. Destroy World (Releases components, which hold references to Textures)
+    m_World.reset();
+
+    // 3. Destroy ResourceManager (Releases cached Textures)
+    m_ResourceManager.reset();
+
+    // 4. Destroy RenderDevice (Destroys GPU Device)
+    m_RenderDevice.reset();
+
+    // 5. Destroy Window
+    m_Window.reset();
 }

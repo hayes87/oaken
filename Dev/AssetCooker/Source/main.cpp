@@ -6,6 +6,7 @@
 #include <thread>
 #include <chrono>
 #include <fstream>
+#include <iomanip> // For std::quoted
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -60,9 +61,22 @@ bool CookTexture(const fs::path& input, const fs::path& output) {
         // Now rename temp to final
         // On Windows, we might need to remove the destination first if it exists
         if (fs::exists(output)) {
-            fs::remove(output);
+            try {
+                fs::remove(output);
+            } catch (const fs::filesystem_error& e) {
+                std::cerr << "[Cooker] Failed to remove existing output file: " << output << " Error: " << e.what() << std::endl;
+                // Try to continue anyway, maybe rename will work (replace existing)
+            }
         }
-        fs::rename(tempOutput, output);
+        
+        try {
+            fs::rename(tempOutput, output);
+        } catch (const fs::filesystem_error& e) {
+             std::cerr << "[Cooker] Failed to rename temp file to output: " << e.what() << std::endl;
+             // Cleanup temp
+             if (fs::exists(tempOutput)) fs::remove(tempOutput);
+             return false;
+        }
         
         return true;
     } catch (std::exception& e) {
@@ -87,7 +101,21 @@ void ProcessCommand(const std::string& commandLine) {
 
     if (command == "COOK") {
         std::string type, inputPath, outputPath;
-        ss >> type >> inputPath >> outputPath;
+        ss >> type;
+        
+        // Handle quoted paths
+        auto readPath = [&](std::string& path) {
+            char c;
+            ss >> std::ws; // Skip whitespace
+            if (ss.peek() == '"') {
+                ss >> std::quoted(path);
+            } else {
+                ss >> path;
+            }
+        };
+
+        readPath(inputPath);
+        readPath(outputPath);
 
         bool success = false;
         if (type == "TEXTURE") {

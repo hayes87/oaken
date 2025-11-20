@@ -3,6 +3,10 @@ struct VSOutput {
     float2 UV : TEXCOORD0;
 };
 
+cbuffer TransformBuffer : register(b0, space1) {
+    float4x4 model;
+};
+
 VSOutput main(uint VertexIndex : SV_VertexID) {
     VSOutput output;
     
@@ -13,7 +17,7 @@ VSOutput main(uint VertexIndex : SV_VertexID) {
     float2 pos = float2(x - 0.5, y - 0.5) * 2.0;
     pos *= 0.5; // Scale
     
-    output.Position = float4(pos, 0.0, 1.0);
+    output.Position = mul(model, float4(pos, 0.0, 1.0));
     output.UV = float2(x, 1.0 - y);
     
     return output;

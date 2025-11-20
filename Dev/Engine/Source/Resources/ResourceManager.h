@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <memory>
 #include <vector>
+#include <filesystem>
 
 namespace Platform { class RenderDevice; }
 
@@ -17,9 +18,12 @@ namespace Resources {
         virtual ~Resource() = default;
         
         const std::string& GetPath() const { return m_Path; }
+        std::filesystem::file_time_type GetLastWriteTime() const { return m_LastWriteTime; }
+        void SetLastWriteTime(std::filesystem::file_time_type time) { m_LastWriteTime = time; }
         
     protected:
         std::string m_Path;
+        std::filesystem::file_time_type m_LastWriteTime;
         friend class ResourceManager;
     };
 
@@ -30,6 +34,7 @@ namespace Resources {
 
         void Init(Platform::RenderDevice* renderDevice);
         void Shutdown();
+        void Update(); // Check for hot reloads
 
         std::shared_ptr<Texture> LoadTexture(const std::string& path);
 

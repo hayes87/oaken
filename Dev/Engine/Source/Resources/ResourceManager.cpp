@@ -25,6 +25,63 @@ namespace Resources {
         std::cout << "[ResourceManager] Shutdown" << std::endl;
     }
 
+    void ResourceManager::Update() {
+        static int frameCount = 0;
+        frameCount++;
+        
+        for (auto& [path, resource] : m_Resources) {
+            std::error_code ec;
+            if (std::filesystem::exists(path, ec)) {
+                auto currentWriteTime = std::filesystem::last_write_time(path, ec);
+                
+                // Debug log every 600 frames (approx 10s)
+                if (frameCount % 600 == 0) {
+                    // std::cout << "[ResourceManager] Checking " << path << std::endl;
+                }
+
+                if (!ec && currentWriteTime > resource->GetLastWriteTime()) {
+                    std::cout << "[ResourceManager] Detected change in " << path << ". Reloading..." << std::endl;
+                    
+                    // Reload logic
+                    // For now, assume it's a texture because that's all we have
+                    // In a real engine, we'd use dynamic_cast or type info
+                    auto texture = std::dynamic_pointer_cast<Texture>(resource);
+                    if (texture) {
+                        // Read file
+                        std::vector<char> data = ReadFile(path);
+                        if (data.empty()) continue;
+
+                        // Parse Header
+                        struct OakTexHeader {
+                            char signature[4];
+                            uint32_t width;
+                            uint32_t height;
+                            uint32_t channels;
+                            uint32_t format;
+                        };
+
+                        if (data.size() < sizeof(OakTexHeader)) continue;
+
+                        OakTexHeader* header = reinterpret_cast<OakTexHeader*>(data.data());
+                        if (strncmp(header->signature, "OAKT", 4) != 0) continue;
+
+                        // Create New Texture
+                        const char* pixelData = data.data() + sizeof(OakTexHeader);
+                        SDL_GPUTexture* gpuTexture = m_RenderDevice->CreateTexture(header->width, header->height, pixelData);
+
+                        if (gpuTexture) {
+                            texture->UpdateTexture(gpuTexture, header->width, header->height);
+                            texture->SetLastWriteTime(currentWriteTime);
+                            std::cout << "[ResourceManager] Reloaded " << path << std::endl;
+                        } else {
+                             std::cerr << "[ResourceManager] Failed to create GPU texture during reload: " << path << std::endl;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     std::vector<char> ResourceManager::ReadFile(const std::string& path) {
         std::ifstream file(path, std::ios::ate | std::ios::binary);
 
@@ -90,6 +147,16 @@ namespace Resources {
         
         // Let's update Texture to store the device pointer.
         auto texture = std::make_shared<Texture>(m_RenderDevice->GetDevice(), header->width, header->height, gpuTexture);
+        texture->m_Path = path;
+        
+        // Use std::filesystem::last_write_time directly on the path
+        // Note: This might throw if file doesn't exist, but we just read it so it should be fine.
+        std::error_code ec;
+        auto lastWriteTime = std::filesystem::last_write_time(path, ec);
+        if (!ec) {
+            texture->SetLastWriteTime(lastWriteTime);
+        }
+
         m_Resources[path] = texture;
         
         return texture;

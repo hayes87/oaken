@@ -2,6 +2,10 @@
 
 layout(location = 0) out vec2 outUV;
 
+layout(std140, set = 1, binding = 0) uniform UniformBlock {
+    mat4 model;
+} ubo;
+
 void main() {
     // Generate a quad (Triangle Strip)
     // 0: -0.5, -0.5
@@ -16,6 +20,6 @@ void main() {
     // Scale to make it visible (0.5 size)
     pos *= 0.5;
     
-    gl_Position = vec4(pos, 0.0, 1.0);
+    gl_Position = ubo.model * vec4(pos, 0.0, 1.0);
     outUV = vec2(x, 1.0 - y);
 }

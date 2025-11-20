@@ -7,6 +7,11 @@
 #include <atomic>
 #include <deque>
 #include <cstdlib>
+#include <map>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
@@ -16,6 +21,141 @@
 
 namespace fs = std::filesystem;
 
+// --- Cooker Service ---
+class CookerService {
+public:
+    CookerService() {}
+    ~CookerService() { Stop(); }
+
+    void Start(const std::string& exePath) {
+        if (m_Running) return;
+        
+#ifdef _WIN32
+        SECURITY_ATTRIBUTES saAttr;
+        saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+        saAttr.bInheritHandle = TRUE;
+        saAttr.lpSecurityDescriptor = NULL;
+
+        // Create pipes
+        if (!CreatePipe(&m_ChildOutRead, &m_ChildOutWrite, &saAttr, 0)) return;
+        if (!SetHandleInformation(m_ChildOutRead, HANDLE_FLAG_INHERIT, 0)) return;
+
+        if (!CreatePipe(&m_ChildInRead, &m_ChildInWrite, &saAttr, 0)) return;
+        if (!SetHandleInformation(m_ChildInWrite, HANDLE_FLAG_INHERIT, 0)) return;
+
+        STARTUPINFOA siStartInfo;
+        ZeroMemory(&siStartInfo, sizeof(STARTUPINFO));
+        siStartInfo.cb = sizeof(STARTUPINFO);
+        siStartInfo.hStdError = m_ChildOutWrite;
+        siStartInfo.hStdOutput = m_ChildOutWrite;
+        siStartInfo.hStdInput = m_ChildInRead;
+        siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
+
+        PROCESS_INFORMATION piProcInfo;
+        ZeroMemory(&piProcInfo, sizeof(PROCESS_INFORMATION));
+
+        std::string cmdLine = "\"" + exePath + "\""; // Quote path just in case
+
+        if (!CreateProcessA(NULL, 
+            const_cast<char*>(cmdLine.c_str()), 
+            NULL, NULL, TRUE, 0, NULL, NULL, 
+            &siStartInfo, &piProcInfo)) {
+            return;
+        }
+
+        m_ProcessInfo = piProcInfo;
+        m_Running = true;
+
+        // Close handles we don't need
+        CloseHandle(m_ChildOutWrite);
+        CloseHandle(m_ChildInRead);
+
+        // Start reading thread
+        m_ReadThread = std::thread(&CookerService::ReadLoop, this);
+#endif
+    }
+
+    void Stop() {
+        if (!m_Running) return;
+        
+        SendCommand("EXIT");
+        
+        if (m_ReadThread.joinable()) m_ReadThread.join();
+
+#ifdef _WIN32
+        CloseHandle(m_ChildInWrite);
+        CloseHandle(m_ChildOutRead);
+        CloseHandle(m_ProcessInfo.hProcess);
+        CloseHandle(m_ProcessInfo.hThread);
+#endif
+        m_Running = false;
+    }
+
+    void SendCommand(const std::string& cmd) {
+        if (!m_Running) return;
+        std::string fullCmd = cmd + "\n";
+#ifdef _WIN32
+        DWORD written;
+        WriteFile(m_ChildInWrite, fullCmd.c_str(), (DWORD)fullCmd.length(), &written, NULL);
+#endif
+    }
+
+    bool IsRunning() const { return m_Running; }
+
+    std::deque<std::string> GetLogs() {
+        std::lock_guard<std::mutex> lock(m_LogMutex);
+        auto logs = m_Logs;
+        m_Logs.clear();
+        return logs;
+    }
+
+private:
+    void ReadLoop() {
+#ifdef _WIN32
+        DWORD read;
+        CHAR chBuf[4096];
+        BOOL bSuccess = FALSE;
+
+        while (m_Running) {
+            bSuccess = ReadFile(m_ChildOutRead, chBuf, 4096, &read, NULL);
+            if (!bSuccess || read == 0) {
+                // Pipe broken or closed
+                break;
+            }
+
+            std::string chunk(chBuf, read);
+            // Split by newline and add to logs
+            std::lock_guard<std::mutex> lock(m_LogMutex);
+            // Simple split (not robust for partial lines but okay for now)
+            size_t pos = 0;
+            while ((pos = chunk.find('\n')) != std::string::npos) {
+                m_Logs.push_back(chunk.substr(0, pos));
+                chunk.erase(0, pos + 1);
+            }
+            if (!chunk.empty()) m_Logs.push_back(chunk);
+        }
+        
+        if (m_Running) {
+            std::lock_guard<std::mutex> lock(m_LogMutex);
+            m_Logs.push_back("[SERVICE] Cooker Service Process Terminated Unexpectedly");
+        }
+        m_Running = false;
+#endif
+    }
+
+    bool m_Running = false;
+    std::thread m_ReadThread;
+    std::mutex m_LogMutex;
+    std::deque<std::string> m_Logs;
+
+#ifdef _WIN32
+    HANDLE m_ChildInRead = NULL;
+    HANDLE m_ChildInWrite = NULL;
+    HANDLE m_ChildOutRead = NULL;
+    HANDLE m_ChildOutWrite = NULL;
+    PROCESS_INFORMATION m_ProcessInfo;
+#endif
+};
 
 // --- Application State ---
 struct AppState {
@@ -36,6 +176,11 @@ struct AppState {
     fs::path gameExe;
     fs::path assetSourceDir;
     fs::path assetCookedDir;
+
+    // Services
+    CookerService cookerService;
+    std::thread fileWatcherThread;
+    std::atomic<bool> watchingFiles{false};
 
     void AddLog(const std::string& msg) {
         std::lock_guard<std::mutex> lock(logMutex);
@@ -83,6 +228,55 @@ void ScanProjects() {
     }
 }
 
+void StartFileWatcher() {
+    if (g_App.watchingFiles) return;
+    g_App.watchingFiles = true;
+    
+    g_App.fileWatcherThread = std::thread([]() {
+        std::map<std::string, fs::file_time_type> fileTimes;
+        
+        while (g_App.watchingFiles) {
+            if (fs::exists(g_App.assetSourceDir)) {
+                for (const auto& entry : fs::recursive_directory_iterator(g_App.assetSourceDir)) {
+                    if (entry.is_regular_file()) {
+                        std::string path = entry.path().string();
+                        std::string ext = entry.path().extension().string();
+                        
+                        if (ext == ".png" || ext == ".jpg") {
+                            auto currentWriteTime = fs::last_write_time(entry.path());
+                            
+                            if (fileTimes.find(path) == fileTimes.end()) {
+                                fileTimes[path] = currentWriteTime;
+                            } else {
+                                if (currentWriteTime != fileTimes[path]) {
+                                    fileTimes[path] = currentWriteTime;
+                                    
+                                    // File Changed! Cook it.
+                                    fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
+                                    fs::path outputPath = g_App.assetCookedDir / relativePath;
+                                    outputPath.replace_extension(".oaktex");
+                                    
+                                    fs::create_directories(outputPath.parent_path());
+                                    
+                                    std::string cmd = "COOK TEXTURE \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
+                                    
+                                    if (g_App.cookerService.IsRunning()) {
+                                        g_App.cookerService.SendCommand(cmd);
+                                        g_App.AddLog("[WATCHER] Requesting Cook: " + relativePath.string());
+                                    } else {
+                                        g_App.AddLog("[WATCHER] Change detected but Service not running: " + relativePath.string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    });
+}
+
 void InitPaths() {
     std::string projectName = "Sandbox";
     if (g_App.currentProjectIndex >= 0 && g_App.currentProjectIndex < g_App.projects.size()) {
@@ -104,6 +298,20 @@ void InitPaths() {
     g_App.AddLog("  Game:   " + g_App.gameExe.string());
     g_App.AddLog("  Assets In:  " + g_App.assetSourceDir.string());
     g_App.AddLog("  Assets Out: " + g_App.assetCookedDir.string());
+
+    // Restart services if paths changed
+    if (g_App.cookerService.IsRunning()) {
+        g_App.cookerService.Stop();
+    }
+    
+    if (fs::exists(g_App.cookerExe)) {
+        g_App.cookerService.Start(g_App.cookerExe.string());
+        g_App.AddLog("[SERVICE] Asset Cooker Started");
+    } else {
+        g_App.AddLog("[ERROR] Asset Cooker not found at " + g_App.cookerExe.string());
+    }
+
+    StartFileWatcher();
 }
 
 int main(int argc, char** argv) {
@@ -208,74 +416,40 @@ int main(int argc, char** argv) {
             }
             
             ImGui::Text("Status: %s", g_App.statusMessage.c_str());
+            if (g_App.cookerService.IsRunning()) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0, 1, 0, 1), "(Cooker Service Running)");
+            } else {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1, 0, 0, 1), "(Cooker Service Stopped)");
+            }
             ImGui::Separator();
 
             ImGui::BeginDisabled(g_App.isBusy);
 
-            if (ImGui::Button("1. Cook Assets", ImVec2(150, 40))) {
-                if (fs::exists(g_App.cookerExe)) {
-                    try {
-                        fs::create_directories(g_App.assetCookedDir);
-                        
-                        // Iterate over assets and cook them one by one
-                        // TODO: This should be done in a separate thread properly, but RunCommandAsync spawns a thread.
-                        // However, spawning 100 threads for 100 assets is bad.
-                        // For now, let's just cook one known file or implement a batch script.
-                        // Better: Create a batch command string or loop in the thread.
-                        
-                        g_App.isBusy = true;
-                        g_App.statusMessage = "Cooking Assets...";
-                        g_App.AddLog("[CMD] Cooking Assets...");
-
-                        std::thread([]() {
-                            int successCount = 0;
-                            int failCount = 0;
-                            
-                            if (fs::exists(g_App.assetSourceDir)) {
-                                for (const auto& entry : fs::recursive_directory_iterator(g_App.assetSourceDir)) {
-                                    if (entry.is_regular_file()) {
-                                        std::string ext = entry.path().extension().string();
-                                        if (ext == ".png" || ext == ".jpg") {
-                                            fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
-                                            fs::path outputPath = g_App.assetCookedDir / relativePath;
-                                            outputPath.replace_extension(".oaktex");
-                                            
-                                            fs::create_directories(outputPath.parent_path());
-                                            
-                                            std::string cmd = g_App.cookerExe.string() + " COOK TEXTURE \"" + entry.path().string() + "\" \"" + outputPath.string() + "\"";
-                                            
-                                            // Capture output using _popen
-                                            FILE* pipe = _popen(cmd.c_str(), "r");
-                                            if (pipe) {
-                                                char buffer[128];
-                                                while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-                                                    std::string line = buffer;
-                                                    // Remove trailing newline
-                                                    if (!line.empty() && line.back() == '\n') line.pop_back();
-                                                    g_App.AddLog(line);
-                                                }
-                                                int result = _pclose(pipe);
-                                                if (result == 0) successCount++;
-                                                else failCount++;
-                                            } else {
-                                                g_App.AddLog("[ERROR] Failed to run cooker command.");
-                                                failCount++;
-                                            }
-                                        }
-                                    }
+            if (ImGui::Button("1. Cook All Assets", ImVec2(150, 40))) {
+                if (g_App.cookerService.IsRunning()) {
+                    g_App.AddLog("[CMD] Requesting Full Cook...");
+                    // Iterate and send commands
+                    if (fs::exists(g_App.assetSourceDir)) {
+                        for (const auto& entry : fs::recursive_directory_iterator(g_App.assetSourceDir)) {
+                            if (entry.is_regular_file()) {
+                                std::string ext = entry.path().extension().string();
+                                if (ext == ".png" || ext == ".jpg") {
+                                    fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
+                                    fs::path outputPath = g_App.assetCookedDir / relativePath;
+                                    outputPath.replace_extension(".oaktex");
+                                    
+                                    fs::create_directories(outputPath.parent_path());
+                                    
+                                    std::string cmd = "COOK TEXTURE \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
+                                    g_App.cookerService.SendCommand(cmd);
                                 }
                             }
-                            
-                            g_App.AddLog("[COOK] Finished. Success: " + std::to_string(successCount) + ", Failed: " + std::to_string(failCount));
-                            g_App.statusMessage = "Ready";
-                            g_App.isBusy = false;
-                        }).detach();
-
-                    } catch (const std::exception& e) {
-                        g_App.AddLog(std::string("[ERROR] Failed to cook: ") + e.what());
+                        }
                     }
                 } else {
-                    g_App.AddLog("[ERROR] Cooker executable not found!");
+                    g_App.AddLog("[ERROR] Cooker Service is not running.");
                 }
             }
             
@@ -304,6 +478,12 @@ int main(int argc, char** argv) {
             
             ImGui::BeginChild("LogRegion", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
             {
+                // Poll logs from service
+                auto serviceLogs = g_App.cookerService.GetLogs();
+                for (const auto& log : serviceLogs) {
+                    g_App.AddLog("[COOKER] " + log);
+                }
+
                 std::lock_guard<std::mutex> lock(g_App.logMutex);
                 for (const auto& log : g_App.logs) {
                     ImGui::TextUnformatted(log.c_str());

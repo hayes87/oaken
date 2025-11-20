@@ -16,6 +16,7 @@ namespace Platform {
 
         SDL_GPUDevice* GetDevice() const { return m_Device; }
         Window* GetWindow() const { return m_Window; }
+        SDL_GPUCommandBuffer* GetCommandBuffer() const { return m_CommandBuffer; }
         SDL_GPURenderPass* GetRenderPass() const { return m_RenderPass; }
 
         SDL_GPUTexture* CreateTexture(uint32_t width, uint32_t height, const void* data);

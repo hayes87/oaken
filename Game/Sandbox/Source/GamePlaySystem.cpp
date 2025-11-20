@@ -1,9 +1,12 @@
 #include "GamePlaySystem.h"
 #include "GameComponents.h"
+#include "Components/Components.h"
 #include "Platform/Input.h"
 #include "Core/EventBus.h"
 #include "Core/Log.h"
 #include <flecs.h>
+#include <cmath>
+#include <SDL3/SDL.h>
 
 using namespace Platform;
 
@@ -16,6 +19,13 @@ void GamePlaySystem::Init() {
             this->OnAction(event);
         });
     }
+
+    // Bounce System
+    m_Context.World->system<Transform, SpriteComponent>()
+        .each([](flecs::entity e, Transform& t, SpriteComponent& s) {
+            float time = SDL_GetTicks() / 1000.0f;
+            t.position.y = std::sin(time * 2.0f) * 0.5f;
+        });
 }
 
 void GamePlaySystem::OnAction(const Platform::ActionEvent& event) {

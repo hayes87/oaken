@@ -14,4 +14,13 @@ namespace Resources {
         }
     }
 
+    void Texture::UpdateTexture(SDL_GPUTexture* newTexture, uint32_t width, uint32_t height) {
+        if (m_Texture) {
+            SDL_ReleaseGPUTexture(m_Device, m_Texture);
+        }
+        m_Texture = newTexture;
+        m_Width = width;
+        m_Height = height;
+    }
+
 }

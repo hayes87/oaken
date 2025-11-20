@@ -7,6 +7,7 @@
 #include <fstream>
 #include <vector>
 #include <filesystem>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace Systems {
 
@@ -96,7 +97,7 @@ namespace Systems {
         vertInfo.num_samplers = 0;
         vertInfo.num_storage_textures = 0;
         vertInfo.num_storage_buffers = 0;
-        vertInfo.num_uniform_buffers = 0;
+        vertInfo.num_uniform_buffers = 1;
 
         SDL_GPUShaderCreateInfo fragInfo = {};
         fragInfo.code_size = fragCode.size();
@@ -168,6 +169,21 @@ namespace Systems {
             m_Context.World->query<Transform, SpriteComponent>()
                 .each([&](flecs::entity e, Transform& t, SpriteComponent& s) {
                 if (s.texture) {
+                    // Calculate Model Matrix
+                    glm::mat4 model = glm::mat4(1.0f);
+                    model = glm::translate(model, t.position);
+                    // Rotation (assuming Z axis for 2D)
+                    model = glm::rotate(model, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
+                    model = glm::scale(model, t.scale);
+
+                    // Push Uniform Data (Slot 0, Set 1 in shader)
+                    // Note: SDL3 GPU maps slot index to binding index usually.
+                    // In our shader: layout(set = 1, binding = 0)
+                    // SDL_PushGPUVertexUniformData updates the uniform buffer bound at the given slot.
+                    // We need to make sure the pipeline layout supports this.
+                    // For now, let's try pushing to slot 0.
+                    SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &model, sizeof(model));
+
                     SDL_GPUTextureSamplerBinding binding;
                     binding.texture = s.texture->GetGPUTexture();
                     binding.sampler = m_Sampler;
