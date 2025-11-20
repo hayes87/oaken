@@ -242,7 +242,17 @@ void StartFileWatcher() {
                         std::string path = entry.path().string();
                         std::string ext = entry.path().extension().string();
                         
+                        // Map extensions to Cooker Commands
+                        std::string cookCommand = "";
                         if (ext == ".png" || ext == ".jpg") {
+                            cookCommand = "COOK TEXTURE";
+                        } else if (ext == ".gltf" || ext == ".glb") {
+                            cookCommand = "COOK MESH";
+                        } else if (ext == ".wav" || ext == ".mp3") {
+                            cookCommand = "COOK AUDIO";
+                        }
+
+                        if (!cookCommand.empty()) {
                             auto currentWriteTime = fs::last_write_time(entry.path());
                             
                             if (fileTimes.find(path) == fileTimes.end()) {
@@ -254,11 +264,15 @@ void StartFileWatcher() {
                                     // File Changed! Cook it.
                                     fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
                                     fs::path outputPath = g_App.assetCookedDir / relativePath;
-                                    outputPath.replace_extension(".oaktex");
+                                    
+                                    // Determine output extension based on type
+                                    if (cookCommand == "COOK TEXTURE") outputPath.replace_extension(".oaktex");
+                                    else if (cookCommand == "COOK MESH") outputPath.replace_extension(".oakmesh");
+                                    else if (cookCommand == "COOK AUDIO") outputPath.replace_extension(".oakaudio");
                                     
                                     fs::create_directories(outputPath.parent_path());
                                     
-                                    std::string cmd = "COOK TEXTURE \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
+                                    std::string cmd = cookCommand + " \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
                                     
                                     if (g_App.cookerService.IsRunning()) {
                                         g_App.cookerService.SendCommand(cmd);

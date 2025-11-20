@@ -42,39 +42,37 @@ namespace Resources {
                 if (!ec && currentWriteTime > resource->GetLastWriteTime()) {
                     std::cout << "[ResourceManager] Detected change in " << path << ". Reloading..." << std::endl;
                     
-                    // Reload logic
-                    // For now, assume it's a texture because that's all we have
-                    // In a real engine, we'd use dynamic_cast or type info
-                    auto texture = std::dynamic_pointer_cast<Texture>(resource);
-                    if (texture) {
-                        // Read file
-                        std::vector<char> data = ReadFile(path);
-                        if (data.empty()) continue;
-
-                        // Parse Header
-                        struct OakTexHeader {
-                            char signature[4];
-                            uint32_t width;
-                            uint32_t height;
-                            uint32_t channels;
-                            uint32_t format;
-                        };
-
-                        if (data.size() < sizeof(OakTexHeader)) continue;
-
-                        OakTexHeader* header = reinterpret_cast<OakTexHeader*>(data.data());
-                        if (strncmp(header->signature, "OAKT", 4) != 0) continue;
-
-                        // Create New Texture
-                        const char* pixelData = data.data() + sizeof(OakTexHeader);
-                        SDL_GPUTexture* gpuTexture = m_RenderDevice->CreateTexture(header->width, header->height, pixelData);
-
-                        if (gpuTexture) {
-                            texture->UpdateTexture(gpuTexture, header->width, header->height);
-                            texture->SetLastWriteTime(currentWriteTime);
-                            std::cout << "[ResourceManager] Reloaded " << path << std::endl;
-                        } else {
-                             std::cerr << "[ResourceManager] Failed to create GPU texture during reload: " << path << std::endl;
+                    // Generic Reload Logic
+                    if (resource->Reload()) {
+                         resource->SetLastWriteTime(currentWriteTime);
+                         std::cout << "[ResourceManager] Reloaded " << path << std::endl;
+                    } else {
+                        // Fallback for now (Legacy Texture Reload) until all resources implement Reload()
+                        auto texture = std::dynamic_pointer_cast<Texture>(resource);
+                        if (texture) {
+                            // ... (Existing Texture Reload Logic) ...
+                            std::vector<char> data = ReadFile(path);
+                            if (!data.empty()) {
+                                struct OakTexHeader {
+                                    char signature[4];
+                                    uint32_t width;
+                                    uint32_t height;
+                                    uint32_t channels;
+                                    uint32_t format;
+                                };
+                                if (data.size() >= sizeof(OakTexHeader)) {
+                                    OakTexHeader* header = reinterpret_cast<OakTexHeader*>(data.data());
+                                    if (strncmp(header->signature, "OAKT", 4) == 0) {
+                                        const char* pixelData = data.data() + sizeof(OakTexHeader);
+                                        SDL_GPUTexture* gpuTexture = m_RenderDevice->CreateTexture(header->width, header->height, pixelData);
+                                        if (gpuTexture) {
+                                            texture->UpdateTexture(gpuTexture, header->width, header->height);
+                                            resource->SetLastWriteTime(currentWriteTime);
+                                            std::cout << "[ResourceManager] Reloaded " << path << std::endl;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -14,6 +14,9 @@ namespace Resources {
         SDL_GPUTexture* GetGPUTexture() const { return m_Texture; }
 
         void UpdateTexture(SDL_GPUTexture* newTexture, uint32_t width, uint32_t height);
+        
+        // Override generic reload
+        virtual bool Reload() override;
 
     private:
         SDL_GPUDevice* m_Device;

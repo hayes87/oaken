@@ -17,6 +17,9 @@ namespace Resources {
     public:
         virtual ~Resource() = default;
         
+        // Returns true if reload was successful
+        virtual bool Reload() { return false; }
+
         const std::string& GetPath() const { return m_Path; }
         std::filesystem::file_time_type GetLastWriteTime() const { return m_LastWriteTime; }
         void SetLastWriteTime(std::filesystem::file_time_type time) { m_LastWriteTime = time; }
