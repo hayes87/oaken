@@ -17,12 +17,12 @@
 
 ## Phase 3: 3D Character Pipeline (Priority)
 - [ ] **Mesh Support (Static)**:
-    - [ ] Implement `CookMesh` in AssetCooker (glTF -> .oakmesh).
+    - [ ] **Import (Assimp)**: Implement `CookMesh` in AssetCooker using Assimp (glTF/FBX -> .oakmesh).
     - [ ] Implement `Mesh` resource class and `Reload()` logic.
     - [ ] Render static 3D meshes in `RenderSystem`.
-- [ ] **Skeletal Animation**:
-    - [ ] **Asset Import**: Extract Skeleton (Joints) and Animation Clips from glTF.
-    - [ ] **Runtime**: Implement `Animator` component and `AnimationSystem`.
+- [ ] **Skeletal Animation (ozz-animation)**:
+    - [ ] **Import**: Extract Skeleton and Animation Clips using Assimp/ozz-animation tools.
+    - [ ] **Runtime**: Integrate `ozz-animation` for playback and sampling.
     - [ ] **Skinning**: Implement Vertex Shader skinning (GPU-based bone transforms).
 - [ ] **Camera System**:
     - [ ] **Component**: Create `Camera` component (FOV, Near/Far, Perspective/Ortho).
