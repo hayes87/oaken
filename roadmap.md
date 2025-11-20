@@ -24,7 +24,7 @@
     - [ ] Implement `TransformSystem` to propagate changes from Parent to Children (Scene Graph).
 - [ ] **Serialization**:
     - [ ] **Text Format (Dev)**: Integrate `nlohmann-json` for human-readable `.oakscene` files (Git-friendly).
-    - [ ] **Binary Format (Runtime)**: Implement `CookScene` to convert JSON -> Binary for fast loading.
+    - [ ] **Binary Format (Runtime)**: Implement `CookScene` to convert `.oakscene` -> `.oaklevel` (Binary) for fast loading.
     - [ ] **Serializer**: Implement `SceneSerializer` to handle both formats.
 
 ## Phase 4: 3D Character Pipeline (Priority)
