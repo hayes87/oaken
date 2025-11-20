@@ -17,6 +17,7 @@
         "tracy",
         "fastgltf",
         "stb",
+        "nlohmann-json",
         {
             "name": "imgui",
             "features": [
