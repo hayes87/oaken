@@ -24,10 +24,13 @@
     - [ ] **Asset Import**: Extract Skeleton (Joints) and Animation Clips from glTF.
     - [ ] **Runtime**: Implement `Animator` component and `AnimationSystem`.
     - [ ] **Skinning**: Implement Vertex Shader skinning (GPU-based bone transforms).
+- [ ] **Camera System**:
+    - [ ] **Component**: Create `Camera` component (FOV, Near/Far, Perspective/Ortho).
+    - [ ] **System**: Implement `CameraSystem` to manage View/Projection matrices.
+    - [ ] **Controller**: Implement `CameraFollow` logic (Third-person orbit/chase).
 - [ ] **Character Controller**:
     - [ ] Implement `CharacterController` component (Velocity, State).
     - [ ] Map Input to Character Movement.
-    - [ ] Implement `CameraFollow` system (Third-person view).
 
 ## Phase 4: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:
