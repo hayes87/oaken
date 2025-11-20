@@ -15,7 +15,19 @@
     - [x] **Generic Reloading**: Engine detects cooked file changes and reloads resources at runtime.
     - [x] **Runtime Update**: Textures update in-game without restarting.
 
-## Phase 3: 3D Character Pipeline (Priority)
+## Phase 3: Scene System (Foundation)
+- [ ] **Scene Architecture**:
+    - [ ] Create `Scene` class to manage entities and systems.
+    - [ ] Implement `SceneManager` to handle scene switching (e.g., MainMenu -> GameLevel).
+- [ ] **Transform Hierarchy**:
+    - [ ] Split `Transform` into `LocalTransform` and `WorldTransform`.
+    - [ ] Implement `TransformSystem` to propagate changes from Parent to Children (Scene Graph).
+- [ ] **Serialization (JSON)**:
+    - [ ] Integrate `nlohmann-json`.
+    - [ ] Implement `SceneSerializer` to Save/Load entities and components.
+    - [ ] Define `.oakscene` file format.
+
+## Phase 4: 3D Character Pipeline (Priority)
 - [ ] **Mesh Support (Static)**:
     - [ ] **Import (Assimp)**: Implement `CookMesh` in AssetCooker using Assimp (glTF/FBX -> .oakmesh).
     - [ ] Implement `Mesh` resource class and `Reload()` logic.
@@ -32,7 +44,7 @@
     - [ ] Implement `CharacterController` component (Velocity, State).
     - [ ] Map Input to Character Movement.
 
-## Phase 4: Core Systems & Gameplay (Next Up)
+## Phase 5: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:
     - [ ] **Job System**: Implement a task scheduler for parallel execution (required for Jolt/AI).
     - [ ] **Thread Safety**: Ensure `ResourceManager` and `EventBus` are thread-safe.
