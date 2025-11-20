@@ -16,17 +16,30 @@
 - [ ] **Gizmos**:
     - [ ] Visual tools to move/rotate/scale entities in the viewport (using `ImGuizmo`).
 
-## Phase 3: Asset Management
+## Phase 3: Asset Management (Next Up)
+- [ ] **Asset Pre-processing (Cooking)**:
+    - [x] **Architecture**: Separate `AssetCooker` process.
+    - [x] **Atomic Writes**: Cooker writes to `.tmp` and renames to prevent locking.
+    - [x] **Texture Cooking**:
+        - [x] Load `.png`/`.jpg` using `stb_image`.
+        - [x] Write custom `.oaktex` binary format (Header + Pixels).
+    - [ ] **Mesh Cooking**:
+        - [ ] Load `.gltf` using `fastgltf`.
+        - [ ] Write custom `.oakmesh` binary format.
+- [ ] **Asset Bundling**:
+    - [ ] Pack processed assets into large binary archives (Asset Bundles) for faster IO.
+    - [ ] Virtual File System to read from Bundles or loose files (for dev iteration).
 - [ ] **Resource Manager**:
-    - [ ] Centralized registry for Meshes, Textures, Shaders, and Audio.
+    - [x] Basic `ResourceManager` class.
+    - [x] Safe `ReadFile` (Read-Close pattern).
+    - [x] **Texture Resource**:
+        - [x] `Texture` class inheriting from `Resource`.
+        - [x] Load `.oaktex` files and upload to SDL3 GPU.
+    - [ ] **Mesh Resource**:
+        - [ ] `Mesh` class inheriting from `Resource`.
+        - [ ] Load `.oakmesh` files and upload to SDL3 GPU.
     - [ ] Async loading support.
-    - [ ] Reference counting / caching.
-- [ ] **Mesh Loading**:
-    - [ ] Integrate `fastgltf` to load `.gltf`/`.glb` models.
-    - [ ] Upload vertex/index buffers to SDL3 GPU.
-- [ ] **Texture Loading**:
-    - [ ] Integrate `stb_image` or similar.
-    - [ ] Upload textures to SDL3 GPU.
+    - [ ] Hot Reloading (File Watcher).
 
 ## Phase 4: Scene Management
 - [ ] **Serialization**:

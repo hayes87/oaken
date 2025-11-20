@@ -11,9 +11,11 @@ target_link_libraries(Sandbox PRIVATE OakenEngine)
 set_target_properties(Sandbox PROPERTIES OUTPUT_NAME "Game")
 
 # Ensure Runner is built before we try to copy it
-add_dependencies(Sandbox Runner)
+# add_dependencies(Sandbox Runner)
 
 # Copy Runner.exe to the Game output directory and rename it to Sandbox.exe
+# We use a custom command that depends on the Runner executable file, not the target
+# This avoids the build-time lock if Runner is running
 add_custom_command(TARGET Sandbox POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:Runner>
@@ -35,7 +37,7 @@ endif()
 # Copy Shaders to Game Directory
 add_custom_command(TARGET Sandbox POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/Engine/Source/Shaders
+    ${CMAKE_SOURCE_DIR}/Dev/Engine/Source/Shaders
     $<TARGET_FILE_DIR:Sandbox>/Source/Shaders
     COMMENT "Copying Shaders to Game Directory"
 )
