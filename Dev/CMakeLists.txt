@@ -36,8 +36,8 @@ FetchContent_Declare(
 set(ozz_build_msvc_rt_dll ON CACHE BOOL "Build with dynamic runtime" FORCE)
 FetchContent_MakeAvailable(ozz-animation)
 
-add_subdirectory(Dev/Engine)
-add_subdirectory(Dev/AssetCooker)
-add_subdirectory(Dev/Launcher)
-add_subdirectory(Dev/Runner)
-add_subdirectory(Game)
+add_subdirectory(Engine)
+add_subdirectory(AssetCooker)
+add_subdirectory(Launcher)
+add_subdirectory(Runner)
+add_subdirectory(../Game Game)
