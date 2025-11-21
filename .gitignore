@@ -23,3 +23,6 @@ Thumbs.db
 
 # CMake
 cmake-build-debug/
+
+# Config
+imgui.ini
