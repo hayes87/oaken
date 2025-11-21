@@ -6,10 +6,8 @@
 2. Ensure you have Vcpkg installed and integrated.
 
 ```bash
-mkdir Build
-cd Build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg/scripts/buildsystems/vcpkg.cmake
-cmake --build .
+cmake -S Dev -B Build -DCMAKE_TOOLCHAIN_FILE=vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build Build
 ```
 
 ## Running

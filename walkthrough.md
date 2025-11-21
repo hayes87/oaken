@@ -15,7 +15,7 @@ The Oaken Engine has been initialized with the following structure:
 
 1.  **Configure with CMake**:
     ```bash
-    cmake -S . -B Build -DCMAKE_TOOLCHAIN_FILE=[path/to/vcpkg]/scripts/buildsystems/vcpkg.cmake
+    cmake -S Dev -B Build -DCMAKE_TOOLCHAIN_FILE=[path/to/vcpkg]/scripts/buildsystems/vcpkg.cmake
     ```
     *Note: Replace `[path/to/vcpkg]` with the actual path to your vcpkg installation.*
 
