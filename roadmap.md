@@ -22,16 +22,16 @@
 - [x] **Transform Hierarchy**:
     - [x] Split `Transform` into `LocalTransform` and `WorldTransform`.
     - [x] Implement `TransformSystem` to propagate changes from Parent to Children (Scene Graph).
-- [ ] **Serialization**:
+- [x] **Serialization**:
     - [x] **Text Format (Dev)**: Integrate `nlohmann-json` for human-readable `.oakscene` files (Git-friendly).
-    - [ ] **Binary Format (Runtime)**: Implement `CookScene` to convert `.oakscene` -> `.oaklevel` (Binary) for fast loading.
-    - [ ] **Serializer**: Implement `SceneSerializer` to handle both formats.
+    - [x] **Binary Format (Runtime)**: Implement `CookScene` to convert `.oakscene` -> `.oaklevel` (Binary) for fast loading.
+    - [x] **Serializer**: Implement `SceneSerializer` to handle both formats.
 
 ## Phase 4: 3D Character Pipeline (Priority)
-- [ ] **Mesh Support (Static)**:
-    - [ ] **Import (Assimp)**: Implement `CookMesh` in AssetCooker using Assimp (glTF/FBX -> .oakmesh).
-    - [ ] Implement `Mesh` resource class and `Reload()` logic.
-    - [ ] Render static 3D meshes in `RenderSystem`.
+- [x] **Mesh Support (Static)**:
+    - [x] **Import (Assimp)**: Implement `CookMesh` in AssetCooker using Assimp (glTF/FBX -> .oakmesh).
+    - [x] Implement `Mesh` resource class and `Reload()` logic.
+    - [x] Render static 3D meshes in `RenderSystem`.
 - [ ] **Skeletal Animation (ozz-animation)**:
     - [ ] **Import**: Extract Skeleton and Animation Clips using Assimp/ozz-animation tools.
     - [ ] **Runtime**: Integrate `ozz-animation` for playback and sampling.

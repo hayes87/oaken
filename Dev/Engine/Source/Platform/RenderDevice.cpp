@@ -13,8 +13,8 @@ namespace Platform {
     bool RenderDevice::Init(Window* window) {
         m_Window = window;
 
-        // Request DXIL (D3D12) or SPIR-V (Vulkan)
-        m_Device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
+        // Request DXIL (D3D12)
+        m_Device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXIL, true, nullptr);
         
         if (!m_Device) {
             std::cerr << "SDL_CreateGPUDevice Error: " << SDL_GetError() << std::endl;
@@ -33,6 +33,10 @@ namespace Platform {
 
     void RenderDevice::Shutdown() {
         if (m_Device) {
+            if (m_DepthTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_DepthTexture);
+                m_DepthTexture = nullptr;
+            }
             if (m_Window) {
                 SDL_ReleaseWindowFromGPUDevice(m_Device, m_Window->GetNativeWindow());
             }
@@ -41,15 +45,41 @@ namespace Platform {
         }
     }
 
+    void RenderDevice::CreateDepthTexture(uint32_t width, uint32_t height) {
+        if (m_DepthTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_DepthTexture);
+        }
+
+        SDL_GPUTextureCreateInfo createInfo = {};
+        createInfo.type = SDL_GPU_TEXTURETYPE_2D;
+        createInfo.format = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        createInfo.width = width;
+        createInfo.height = height;
+        createInfo.layer_count_or_depth = 1;
+        createInfo.num_levels = 1;
+        createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+
+        m_DepthTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+    }
+
     void RenderDevice::BeginFrame() {
         m_CommandBuffer = SDL_AcquireGPUCommandBuffer(m_Device);
         if (!m_CommandBuffer) {
             return;
         }
 
-        if (!SDL_AcquireGPUSwapchainTexture(m_CommandBuffer, m_Window->GetNativeWindow(), &m_SwapchainTexture, nullptr, nullptr)) {
+        uint32_t w, h;
+        if (!SDL_AcquireGPUSwapchainTexture(m_CommandBuffer, m_Window->GetNativeWindow(), &m_SwapchainTexture, &w, &h)) {
             return;
         }
+
+        // Ensure depth texture matches window size
+        if (!m_DepthTexture) {
+            CreateDepthTexture(w, h);
+        } 
+        // Note: We should also resize if w/h changed, but SDL_GPUTexture doesn't expose size easily.
+        // For now, assume constant size or handle resize event elsewhere.
 
         if (m_SwapchainTexture) {
             SDL_GPUColorTargetInfo colorTargetInfo = {};
@@ -58,7 +88,16 @@ namespace Platform {
             colorTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
             colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
 
-            m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, &colorTargetInfo, 1, nullptr);
+            SDL_GPUDepthStencilTargetInfo depthStencilInfo = {};
+            depthStencilInfo.texture = m_DepthTexture;
+            depthStencilInfo.clear_depth = 1.0f;
+            depthStencilInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+            depthStencilInfo.store_op = SDL_GPU_STOREOP_STORE;
+            depthStencilInfo.stencil_load_op = SDL_GPU_LOADOP_CLEAR;
+            depthStencilInfo.stencil_store_op = SDL_GPU_STOREOP_STORE;
+            depthStencilInfo.cycle = true; // Important if we reuse the texture
+
+            m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, &colorTargetInfo, 1, &depthStencilInfo);
         }
     }
 

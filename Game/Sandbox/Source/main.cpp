@@ -4,6 +4,9 @@
 #include "Core/Log.h"
 #include "Components/Components.h"
 #include "Resources/Texture.h"
+#include "Resources/Mesh.h"
+#include "Resources/Skeleton.h"
+#include "Resources/Animation.h"
 #include <memory>
 #include <filesystem>
 
@@ -11,6 +14,9 @@
 // but for now we just re-init.
 std::unique_ptr<GamePlaySystem> g_GamePlaySystem;
 std::shared_ptr<Resources::Texture> g_TestTexture;
+std::shared_ptr<Resources::Mesh> g_TestMesh;
+std::shared_ptr<Resources::Skeleton> g_TestSkeleton;
+std::shared_ptr<Resources::Animation> g_TestAnimation;
 
 GAME_EXPORT void GameInit(Engine& engine) {
     LOG_INFO("GameInit: Initializing Sandbox Game Module");
@@ -35,6 +41,39 @@ GAME_EXPORT void GameInit(Engine& engine) {
         // Try absolute path for debugging if needed, or just warn.
     }
 
+    // Load Test Mesh
+    std::string meshPath = "../Cooked/Assets/Models/Joli.oakmesh";
+    if (std::filesystem::exists(meshPath)) {
+        g_TestMesh = engine.GetResourceManager().LoadMesh(meshPath);
+        if (g_TestMesh) {
+            LOG_INFO("Successfully loaded test mesh: {}", meshPath);
+        } else {
+            LOG_ERROR("Failed to load mesh: {}", meshPath);
+        }
+    }
+
+    // Load Test Skeleton
+    std::string skelPath = "../Cooked/Assets/Models/Joli.oakskel";
+    if (std::filesystem::exists(skelPath)) {
+        g_TestSkeleton = engine.GetResourceManager().LoadSkeleton(skelPath);
+        if (g_TestSkeleton) {
+            LOG_INFO("Successfully loaded test skeleton: {}", skelPath);
+        } else {
+            LOG_ERROR("Failed to load skeleton: {}", skelPath);
+        }
+    }
+
+    // Load Test Animation
+    std::string animPath = "../Cooked/Assets/Models/Joli.oakanim";
+    if (std::filesystem::exists(animPath)) {
+        g_TestAnimation = engine.GetResourceManager().LoadAnimation(animPath);
+        if (g_TestAnimation) {
+            LOG_INFO("Successfully loaded test animation: {}", animPath);
+        } else {
+            LOG_ERROR("Failed to load animation: {}", animPath);
+        }
+    }
+
     // Initialize Game Systems
     g_GamePlaySystem = std::make_unique<GamePlaySystem>(engine.GetContext());
     g_GamePlaySystem->Init();
@@ -46,9 +85,21 @@ GAME_EXPORT void GameInit(Engine& engine) {
         auto e = engine.GetContext().World->entity("Player")
             .set<AttributeSet>({100.0f, 100.0f, 100.0f, 100.0f, 10.0f});
             
-        if (g_TestTexture) {
-            e.set<SpriteComponent>({g_TestTexture, {1,1,1,1}});
-            LOG_INFO("Added SpriteComponent to Player entity");
+        // if (g_TestTexture) {
+        //     e.set<SpriteComponent>({g_TestTexture, {1,1,1,1}});
+        //     LOG_INFO("Added SpriteComponent to Player entity");
+        // }
+
+        if (g_TestMesh) {
+            auto meshEntity = engine.GetContext().World->entity("Joli")
+                .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
+                .set<MeshComponent>({g_TestMesh});
+            
+            if (g_TestSkeleton && g_TestAnimation) {
+                meshEntity.set<AnimatorComponent>({g_TestSkeleton, g_TestAnimation});
+                LOG_INFO("Added AnimatorComponent to Joli entity");
+            }
+            LOG_INFO("Created Joli entity with MeshComponent");
         }
     } else {
         // If entity exists (reloaded), update texture

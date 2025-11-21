@@ -21,6 +21,14 @@ add_library(OakenEngine SHARED
     Source/Resources/ResourceManager.cpp
     Source/Resources/Texture.h
     Source/Resources/Texture.cpp
+    Source/Resources/Mesh.h
+    Source/Resources/Mesh.cpp
+    Source/Resources/Skeleton.h
+    Source/Resources/Skeleton.cpp
+    Source/Resources/Animation.h
+    Source/Resources/Animation.cpp
+    Source/Resources/Shader.h
+    Source/Resources/Shader.cpp
     Source/Scene/Scene.h
     Source/Scene/Scene.cpp
     Source/Scene/SceneManager.h
@@ -39,6 +47,8 @@ add_library(OakenEngine SHARED
     Source/Systems/ScriptSystem.cpp
     Source/Systems/EditorSystem.h
     Source/Systems/EditorSystem.cpp
+    Source/Systems/AnimationSystem.h
+    Source/Systems/AnimationSystem.cpp
 )
 
 # Auto-export all symbols for DLL creation on Windows
@@ -58,4 +68,5 @@ target_link_libraries(OakenEngine PUBLIC
     Tracy::TracyClient
     fastgltf::fastgltf
     imgui::imgui
+    ozz_animation
 )

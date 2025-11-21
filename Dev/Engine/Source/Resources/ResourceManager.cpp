@@ -1,5 +1,9 @@
 #include "ResourceManager.h"
 #include "Texture.h"
+#include "Mesh.h"
+#include "Shader.h"
+#include "Skeleton.h"
+#include "Animation.h"
 #include "../Platform/RenderDevice.h"
 #include <iostream>
 #include <fstream>
@@ -98,13 +102,44 @@ namespace Resources {
         return buffer;
     }
 
-    std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& path) {
-        // Check cache
+    std::shared_ptr<Skeleton> ResourceManager::LoadSkeleton(const std::string& path) {
         if (m_Resources.find(path) != m_Resources.end()) {
-            return std::static_pointer_cast<Texture>(m_Resources[path]);
+            return std::dynamic_pointer_cast<Skeleton>(m_Resources[path]);
         }
 
-        // Read file
+        auto skeleton = std::make_shared<Skeleton>();
+        skeleton->m_Path = path;
+        if (skeleton->Load(path)) {
+            std::error_code ec;
+            skeleton->SetLastWriteTime(std::filesystem::last_write_time(path, ec));
+            m_Resources[path] = skeleton;
+            return skeleton;
+        }
+        return nullptr;
+    }
+
+    std::shared_ptr<Animation> ResourceManager::LoadAnimation(const std::string& path) {
+        if (m_Resources.find(path) != m_Resources.end()) {
+            return std::dynamic_pointer_cast<Animation>(m_Resources[path]);
+        }
+
+        auto animation = std::make_shared<Animation>();
+        animation->m_Path = path;
+        if (animation->Load(path)) {
+            std::error_code ec;
+            animation->SetLastWriteTime(std::filesystem::last_write_time(path, ec));
+            m_Resources[path] = animation;
+            return animation;
+        }
+        return nullptr;
+    }
+
+    std::shared_ptr<Texture> ResourceManager::LoadTexture(const std::string& path) {
+        // Check Cache
+        if (m_Resources.find(path) != m_Resources.end()) {
+            return std::dynamic_pointer_cast<Texture>(m_Resources[path]);
+        }
+
         std::vector<char> data = ReadFile(path);
         if (data.empty()) return nullptr;
 
@@ -117,10 +152,7 @@ namespace Resources {
             uint32_t format;
         };
 
-        if (data.size() < sizeof(OakTexHeader)) {
-            std::cerr << "[ResourceManager] File too small: " << path << std::endl;
-            return nullptr;
-        }
+        if (data.size() < sizeof(OakTexHeader)) return nullptr;
 
         OakTexHeader* header = reinterpret_cast<OakTexHeader*>(data.data());
         if (strncmp(header->signature, "OAKT", 4) != 0) {
@@ -128,36 +160,55 @@ namespace Resources {
             return nullptr;
         }
 
-        // Create Texture
         const char* pixelData = data.data() + sizeof(OakTexHeader);
-        SDL_GPUTexture* gpuTexture = m_RenderDevice->CreateTexture(header->width, header->height, pixelData);
-
-        if (!gpuTexture) {
-            std::cerr << "[ResourceManager] Failed to create GPU texture: " << path << std::endl;
-            return nullptr;
-        }
-
-        // We need to pass the device to the texture for cleanup, or handle it differently.
-        // For now, let's assume Texture takes ownership of the SDL_GPUTexture* but we need to fix the destructor issue.
-        // The Texture class I wrote earlier takes (width, height, texture).
-        // But its destructor calls SDL_ReleaseGPUTexture(Platform::RenderDevice::GetDeviceInstance(), m_Texture);
-        // I need to fix Texture.cpp to use the device from somewhere.
         
-        // Let's update Texture to store the device pointer.
+        // Create GPU Texture
+        SDL_GPUTexture* gpuTexture = m_RenderDevice->CreateTexture(header->width, header->height, pixelData);
+        if (!gpuTexture) return nullptr;
+
         auto texture = std::make_shared<Texture>(m_RenderDevice->GetDevice(), header->width, header->height, gpuTexture);
         texture->m_Path = path;
+        texture->m_LastWriteTime = std::filesystem::last_write_time(path);
         
-        // Use std::filesystem::last_write_time directly on the path
-        // Note: This might throw if file doesn't exist, but we just read it so it should be fine.
-        std::error_code ec;
-        auto lastWriteTime = std::filesystem::last_write_time(path, ec);
-        if (!ec) {
-            texture->SetLastWriteTime(lastWriteTime);
+        m_Resources[path] = texture;
+        return texture;
+    }
+
+    std::shared_ptr<Mesh> ResourceManager::LoadMesh(const std::string& path) {
+        // Check Cache
+        if (m_Resources.find(path) != m_Resources.end()) {
+            return std::dynamic_pointer_cast<Mesh>(m_Resources[path]);
         }
 
-        m_Resources[path] = texture;
+        auto mesh = std::make_shared<Mesh>(m_RenderDevice->GetDevice(), nullptr, nullptr, 0, 0);
+        mesh->m_Path = path;
         
-        return texture;
+        if (mesh->Reload()) {
+            mesh->m_LastWriteTime = std::filesystem::last_write_time(path);
+            m_Resources[path] = mesh;
+            return mesh;
+        }
+        
+        return nullptr;
+    }
+
+    std::shared_ptr<Shader> ResourceManager::LoadShader(const std::string& path, SDL_GPUShaderStage stage,
+        uint32_t samplers, uint32_t storageTextures, uint32_t storageBuffers, uint32_t uniformBuffers) {
+        // Check Cache
+        if (m_Resources.find(path) != m_Resources.end()) {
+            return std::dynamic_pointer_cast<Shader>(m_Resources[path]);
+        }
+
+        auto shader = std::make_shared<Shader>(m_RenderDevice->GetDevice(), nullptr, stage, samplers, storageTextures, storageBuffers, uniformBuffers);
+        shader->m_Path = path;
+
+        if (shader->Reload()) {
+            shader->m_LastWriteTime = std::filesystem::last_write_time(path);
+            m_Resources[path] = shader;
+            return shader;
+        }
+
+        return nullptr;
     }
 
 }

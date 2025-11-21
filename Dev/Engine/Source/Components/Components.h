@@ -3,8 +3,17 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <memory>
+#include <ozz/base/containers/vector.h>
+#include <ozz/base/maths/soa_transform.h>
+#include <ozz/base/maths/simd_math.h>
+#include <ozz/animation/runtime/sampling_job.h>
+#include "../Resources/Skeleton.h"
+#include "../Resources/Animation.h"
 
-namespace Resources { class Texture; }
+namespace Resources { 
+    class Texture; 
+    class Mesh;
+}
 
 struct LocalTransform {
     glm::vec3 position = {0.0f, 0.0f, 0.0f};
@@ -22,10 +31,19 @@ struct SpriteComponent {
 };
 
 struct MeshComponent {
-    // Handles will be integers or HashedStrings later
-    // For now, just placeholders
-    uint32_t meshId = 0;
-    uint32_t materialId = 0;
+    std::shared_ptr<Resources::Mesh> mesh;
+    glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // Simple color for now
+};
+
+struct AnimatorComponent {
+    std::shared_ptr<Resources::Skeleton> skeleton;
+    std::shared_ptr<Resources::Animation> animation;
+    float time = 0.0f;
+    
+    // Runtime buffers
+    ozz::vector<ozz::math::SoaTransform> locals;
+    ozz::vector<ozz::math::Float4x4> models; // Skinning matrices
+    std::unique_ptr<ozz::animation::SamplingJob::Context> context;
 };
 
 struct ScriptComponent {

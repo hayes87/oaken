@@ -11,15 +11,15 @@ vcpkg/installed/
 .vscode/
 *.user
 
-# Binary files
-*.exe
-*.dll
-*.pdb
-*.ilk
-*.obj
-*.lib
-*.exp
+# Generated Assets
+Cooked/
+
+# Binaries
+Oaken/
 
 # OS generated
 .DS_Store
 Thumbs.db
+
+# CMake
+cmake-build-debug/

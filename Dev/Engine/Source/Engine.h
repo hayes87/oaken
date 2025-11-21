@@ -16,6 +16,7 @@
 #include "Systems/ScriptSystem.h"
 #include "Systems/EditorSystem.h"
 #include "Systems/TransformSystem.h"
+#include "Systems/AnimationSystem.h"
 
 #ifdef _WIN32
     #define GAME_EXPORT extern "C" __declspec(dllexport)
@@ -63,6 +64,7 @@ private:
     std::unique_ptr<Systems::ScriptSystem> m_ScriptSystem;
     std::unique_ptr<Systems::EditorSystem> m_EditorSystem;
     std::unique_ptr<Systems::TransformSystem> m_TransformSystem;
+    std::unique_ptr<Systems::AnimationSystem> m_AnimationSystem;
 
     bool m_IsRunning = false;
     bool m_EditorMode = true;

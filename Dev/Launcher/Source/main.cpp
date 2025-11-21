@@ -243,16 +243,22 @@ void StartFileWatcher() {
                         std::string ext = entry.path().extension().string();
                         
                         // Map extensions to Cooker Commands
-                        std::string cookCommand = "";
+                        std::vector<std::string> cookCommands;
                         if (ext == ".png" || ext == ".jpg") {
-                            cookCommand = "COOK TEXTURE";
-                        } else if (ext == ".gltf" || ext == ".glb") {
-                            cookCommand = "COOK MESH";
+                            cookCommands.push_back("COOK TEXTURE");
+                        } else if (ext == ".gltf" || ext == ".glb" || ext == ".obj" || ext == ".fbx") {
+                            cookCommands.push_back("COOK MESH");
+                            cookCommands.push_back("COOK SKELETON");
+                            cookCommands.push_back("COOK ANIMATION");
                         } else if (ext == ".wav" || ext == ".mp3") {
-                            cookCommand = "COOK AUDIO";
+                            cookCommands.push_back("COOK AUDIO");
+                        } else if (ext == ".oakscene") {
+                            cookCommands.push_back("COOK SCENE");
+                        } else if (ext == ".vert" || ext == ".frag" || ext == ".comp") {
+                            cookCommands.push_back("COOK SHADER");
                         }
 
-                        if (!cookCommand.empty()) {
+                        if (!cookCommands.empty()) {
                             auto currentWriteTime = fs::last_write_time(entry.path());
                             
                             if (fileTimes.find(path) == fileTimes.end()) {
@@ -264,21 +270,45 @@ void StartFileWatcher() {
                                     // File Changed! Cook it.
                                     fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
                                     fs::path outputPath = g_App.assetCookedDir / relativePath;
-                                    
-                                    // Determine output extension based on type
-                                    if (cookCommand == "COOK TEXTURE") outputPath.replace_extension(".oaktex");
-                                    else if (cookCommand == "COOK MESH") outputPath.replace_extension(".oakmesh");
-                                    else if (cookCommand == "COOK AUDIO") outputPath.replace_extension(".oakaudio");
-                                    
                                     fs::create_directories(outputPath.parent_path());
                                     
-                                    std::string cmd = cookCommand + " \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
-                                    
-                                    if (g_App.cookerService.IsRunning()) {
-                                        g_App.cookerService.SendCommand(cmd);
-                                        g_App.AddLog("[WATCHER] Requesting Cook: " + relativePath.string());
-                                    } else {
-                                        g_App.AddLog("[WATCHER] Change detected but Service not running: " + relativePath.string());
+                                    for (const auto& cmdType : cookCommands) {
+                                        fs::path finalOutput = outputPath;
+                                        if (cmdType == "COOK TEXTURE") finalOutput.replace_extension(".oaktex");
+                                        else if (cmdType == "COOK MESH") finalOutput.replace_extension(".oakmesh");
+                                        else if (cmdType == "COOK SKELETON") finalOutput.replace_extension(".oakskel");
+                                        else if (cmdType == "COOK ANIMATION") finalOutput.replace_extension(".oakanim");
+                                        else if (cmdType == "COOK AUDIO") finalOutput.replace_extension(".oakaudio");
+                                        else if (cmdType == "COOK SCENE") finalOutput.replace_extension(".oaklevel");
+                                        else if (cmdType == "COOK SHADER") {
+                                            // SPIR-V
+                                            fs::path spvOut = outputPath;
+                                            spvOut.replace_extension(ext + ".spv");
+                                            std::string cmdSpv = cmdType + " \"" + entry.path().generic_string() + "\" \"" + spvOut.generic_string() + "\"";
+                                            
+                                            // DXIL
+                                            fs::path dxilOut = outputPath;
+                                            dxilOut.replace_extension(ext + ".dxil");
+                                            std::string cmdDxil = cmdType + " \"" + entry.path().generic_string() + "\" \"" + dxilOut.generic_string() + "\"";
+
+                                            if (g_App.cookerService.IsRunning()) {
+                                                g_App.cookerService.SendCommand(cmdSpv);
+                                                g_App.cookerService.SendCommand(cmdDxil);
+                                                g_App.AddLog("[WATCHER] Requesting Cook: " + relativePath.string() + " (SHADER SPV+DXIL)");
+                                            } else {
+                                                g_App.AddLog("[WATCHER] Change detected but Service not running: " + relativePath.string());
+                                            }
+                                            continue; // Skip default command generation
+                                        }
+                                        
+                                        std::string cmd = cmdType + " \"" + entry.path().generic_string() + "\" \"" + finalOutput.generic_string() + "\"";
+                                        
+                                        if (g_App.cookerService.IsRunning()) {
+                                            g_App.cookerService.SendCommand(cmd);
+                                            g_App.AddLog("[WATCHER] Requesting Cook: " + relativePath.string() + " (" + cmdType + ")");
+                                        } else {
+                                            g_App.AddLog("[WATCHER] Change detected but Service not running: " + relativePath.string());
+                                        }
                                     }
                                 }
                             }
@@ -449,15 +479,47 @@ int main(int argc, char** argv) {
                         for (const auto& entry : fs::recursive_directory_iterator(g_App.assetSourceDir)) {
                             if (entry.is_regular_file()) {
                                 std::string ext = entry.path().extension().string();
+                                fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
+                                fs::path outputPath = g_App.assetCookedDir / relativePath;
+                                fs::create_directories(outputPath.parent_path());
+
                                 if (ext == ".png" || ext == ".jpg") {
-                                    fs::path relativePath = fs::relative(entry.path(), g_App.assetSourceDir);
-                                    fs::path outputPath = g_App.assetCookedDir / relativePath;
                                     outputPath.replace_extension(".oaktex");
-                                    
-                                    fs::create_directories(outputPath.parent_path());
-                                    
                                     std::string cmd = "COOK TEXTURE \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
                                     g_App.cookerService.SendCommand(cmd);
+                                } else if (ext == ".gltf" || ext == ".glb" || ext == ".obj" || ext == ".fbx") {
+                                    // Mesh
+                                    fs::path meshOut = outputPath;
+                                    meshOut.replace_extension(".oakmesh");
+                                    g_App.cookerService.SendCommand("COOK MESH \"" + entry.path().generic_string() + "\" \"" + meshOut.generic_string() + "\"");
+
+                                    // Skeleton
+                                    fs::path skelOut = outputPath;
+                                    skelOut.replace_extension(".oakskel");
+                                    g_App.cookerService.SendCommand("COOK SKELETON \"" + entry.path().generic_string() + "\" \"" + skelOut.generic_string() + "\"");
+
+                                    // Animation
+                                    fs::path animOut = outputPath;
+                                    animOut.replace_extension(".oakanim");
+                                    g_App.cookerService.SendCommand("COOK ANIMATION \"" + entry.path().generic_string() + "\" \"" + animOut.generic_string() + "\"");
+                                } else if (ext == ".wav" || ext == ".mp3") {
+                                    outputPath.replace_extension(".oakaudio");
+                                    std::string cmd = "COOK AUDIO \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
+                                    g_App.cookerService.SendCommand(cmd);
+                                } else if (ext == ".oakscene") {
+                                    outputPath.replace_extension(".oaklevel");
+                                    std::string cmd = "COOK SCENE \"" + entry.path().generic_string() + "\" \"" + outputPath.generic_string() + "\"";
+                                    g_App.cookerService.SendCommand(cmd);
+                                } else if (ext == ".vert" || ext == ".frag" || ext == ".comp") {
+                                    // Cook SPIR-V
+                                    fs::path spvOut = outputPath;
+                                    spvOut.replace_extension(ext + ".spv");
+                                    g_App.cookerService.SendCommand("COOK SHADER \"" + entry.path().generic_string() + "\" \"" + spvOut.generic_string() + "\"");
+                                    
+                                    // Cook DXIL
+                                    fs::path dxilOut = outputPath;
+                                    dxilOut.replace_extension(ext + ".dxil");
+                                    g_App.cookerService.SendCommand("COOK SHADER \"" + entry.path().generic_string() + "\" \"" + dxilOut.generic_string() + "\"");
                                 }
                             }
                         }

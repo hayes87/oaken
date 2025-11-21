@@ -7,10 +7,18 @@ add_executable(AssetCooker
 )
 
 find_package(fastgltf CONFIG REQUIRED)
+find_package(assimp CONFIG REQUIRED)
 find_package(Stb REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
 target_link_libraries(AssetCooker PRIVATE 
-    fastgltf::fastgltf 
+    fastgltf::fastgltf
+    assimp::assimp
+    nlohmann_json::nlohmann_json
+    glm::glm
+    ozz_animation
+    ozz_animation_offline
 )
 
 target_include_directories(AssetCooker PRIVATE ${Stb_INCLUDE_DIR})

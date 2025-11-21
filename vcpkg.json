@@ -16,6 +16,7 @@
         "spdlog",
         "tracy",
         "fastgltf",
+        "assimp",
         "stb",
         "nlohmann-json",
         {

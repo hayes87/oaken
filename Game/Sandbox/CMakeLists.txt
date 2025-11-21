@@ -38,6 +38,6 @@ endif()
 add_custom_command(TARGET Sandbox POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/Dev/Engine/Source/Shaders
-    $<TARGET_FILE_DIR:Sandbox>/Source/Shaders
+    $<TARGET_FILE_DIR:Sandbox>/Assets/Shaders
     COMMENT "Copying Shaders to Game Directory"
 )

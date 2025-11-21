@@ -10,6 +10,7 @@
 #include "Core/TimeStep.h"
 #include "Core/Log.h"
 #include "Components/Components.h"
+#include "Scene/SceneSerializer.h"
 #include <iostream>
 
 Engine::Engine() {
@@ -54,17 +55,29 @@ bool Engine::Init() {
 
     m_ResourceManager->Init(m_RenderDevice.get());
 
-    m_RenderSystem = std::make_unique<Systems::RenderSystem>(m_Context, *m_RenderDevice);
+    m_RenderSystem = std::make_unique<Systems::RenderSystem>(m_Context, *m_RenderDevice, *m_ResourceManager);
     m_RenderSystem->Init();
 
     m_Input->Init(m_EventBus.get());
     
     // Create and Load Scene
     auto scene = std::make_unique<Core::Scene>();
+    
+    Core::SceneSerializer serializer(scene.get(), m_ResourceManager.get());
+    // Try loading from relative path (assuming running from Cooked folder)
+    if (serializer.DeserializeBinary("Assets/Scenes/Test.oaklevel")) {
+        LOG_CORE_INFO("Loaded Test.oaklevel");
+    } else {
+        LOG_CORE_WARN("Failed to load Test.oaklevel, creating default scene");
+        auto e = scene->GetWorld().entity("Player")
+            .set<LocalTransform>({ {0,0,0}, {0,0,0}, {1,1,1} });
+    }
+
     m_SceneManager->LoadScene(std::move(scene));
     m_Context.World = &m_SceneManager->GetActiveScene()->GetWorld();
 
     // Init Systems
+    m_AnimationSystem = std::make_unique<Systems::AnimationSystem>(*m_Context.World);
     m_AbilitySystem->Init();
     m_PhysicsSystem->Init();
     m_ScriptSystem->Init();
@@ -73,10 +86,6 @@ bool Engine::Init() {
     
     // Map some test input
     m_Input->MapAction("Cast_Slot_1"_hs, SDL_SCANCODE_SPACE);
-    
-    // Create a test entity
-    auto e = m_Context.World->entity("Player")
-        .set<LocalTransform>({ {0,0,0}, {0,0,0}, {1,1,1} });
     
     // Initialize time
     m_CurrentTime = SDL_GetTicks() / 1000.0;
