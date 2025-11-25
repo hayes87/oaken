@@ -58,7 +58,7 @@ bool Engine::Init() {
     m_RenderSystem = std::make_unique<Systems::RenderSystem>(m_Context, *m_RenderDevice, *m_ResourceManager);
     m_RenderSystem->Init();
 
-    m_Input->Init(m_EventBus.get());
+    m_Input->Init(m_EventBus.get(), m_Window->GetNativeWindow());
     
     // Create and Load Scene
     auto scene = std::make_unique<Core::Scene>();
@@ -83,6 +83,7 @@ bool Engine::Init() {
     m_ScriptSystem->Init();
     m_EditorSystem->Init();
     m_TransformSystem->Init();
+    m_CameraSystem = std::make_unique<Systems::CameraSystem>(*m_Context.World, *m_Input);
     
     // Map some test input
     m_Input->MapAction("Cast_Slot_1"_hs, SDL_SCANCODE_SPACE);
@@ -168,6 +169,12 @@ void Engine::Run() {
 
 void Engine::Update(double dt) {
     m_ResourceManager->Update();
+    
+    // Run Flecs Systems (e.g. Animation)
+    if (m_Context.World) {
+        m_Context.World->progress(dt);
+    }
+
     m_PhysicsSystem->Step(dt);
     m_AbilitySystem->TickCooldowns(dt);
     m_ScriptSystem->Update(dt);

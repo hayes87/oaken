@@ -42,7 +42,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Mesh
-    std::string meshPath = "../Cooked/Assets/Models/Joli.oakmesh";
+    std::string meshPath = "../Cooked/Assets/Models/test.oakmesh";
     if (std::filesystem::exists(meshPath)) {
         g_TestMesh = engine.GetResourceManager().LoadMesh(meshPath);
         if (g_TestMesh) {
@@ -53,7 +53,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Skeleton
-    std::string skelPath = "../Cooked/Assets/Models/Joli.oakskel";
+    std::string skelPath = "../Cooked/Assets/Models/test.oakskel";
     if (std::filesystem::exists(skelPath)) {
         g_TestSkeleton = engine.GetResourceManager().LoadSkeleton(skelPath);
         if (g_TestSkeleton) {
@@ -64,7 +64,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Animation
-    std::string animPath = "../Cooked/Assets/Models/Joli.oakanim";
+    std::string animPath = "../Cooked/Assets/Models/test.oakanim";
     if (std::filesystem::exists(animPath)) {
         g_TestAnimation = engine.GetResourceManager().LoadAnimation(animPath);
         if (g_TestAnimation) {
@@ -77,6 +77,14 @@ GAME_EXPORT void GameInit(Engine& engine) {
     // Initialize Game Systems
     g_GamePlaySystem = std::make_unique<GamePlaySystem>(engine.GetContext());
     g_GamePlaySystem->Init();
+
+    // Create Camera if it doesn't exist
+    if (engine.GetContext().World->count<CameraComponent>() == 0) {
+        engine.GetContext().World->entity("MainCamera")
+            .set<LocalTransform>({ {0.0f, 2.0f, 5.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+            .set<CameraComponent>({ 45.0f, 0.1f, 100.0f, true });
+        LOG_INFO("Created MainCamera entity");
+    }
 
     // Create a test entity with AttributeSet if it doesn't exist
     // For hot reload, we might want to avoid creating duplicates.
@@ -91,15 +99,27 @@ GAME_EXPORT void GameInit(Engine& engine) {
         // }
 
         if (g_TestMesh) {
-            auto meshEntity = engine.GetContext().World->entity("Joli")
-                .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
+            auto meshEntity = engine.GetContext().World->entity("TestMesh")
+                .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
                 .set<MeshComponent>({g_TestMesh});
-            
-            if (g_TestSkeleton && g_TestAnimation) {
+             
+            if (g_TestSkeleton) {
                 meshEntity.set<AnimatorComponent>({g_TestSkeleton, g_TestAnimation});
-                LOG_INFO("Added AnimatorComponent to Joli entity");
+                LOG_INFO("Added AnimatorComponent to TestMesh entity");
             }
-            LOG_INFO("Created Joli entity with MeshComponent");
+            LOG_INFO("Created TestMesh entity with MeshComponent");
+        }
+
+        // Add a static cube for testing
+        std::string cubePath = "../Cooked/Assets/Models/cube.oakmesh";
+        if (std::filesystem::exists(cubePath)) {
+            auto cubeMesh = engine.GetResourceManager().LoadMesh(cubePath);
+            if (cubeMesh) {
+                engine.GetContext().World->entity("Cube")
+                    .set<LocalTransform>({ {2.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+                    .set<MeshComponent>({cubeMesh});
+                LOG_INFO("Created Cube entity");
+            }
         }
     } else {
         // If entity exists (reloaded), update texture

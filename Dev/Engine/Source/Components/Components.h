@@ -39,6 +39,7 @@ struct AnimatorComponent {
     std::shared_ptr<Resources::Skeleton> skeleton;
     std::shared_ptr<Resources::Animation> animation;
     float time = 0.0f;
+    bool loop = true;
     
     // Runtime buffers
     ozz::vector<ozz::math::SoaTransform> locals;
@@ -48,4 +49,11 @@ struct AnimatorComponent {
 
 struct ScriptComponent {
     std::string scriptName;
+};
+
+struct CameraComponent {
+    float fov = 45.0f;
+    float nearPlane = 0.1f;
+    float farPlane = 100.0f;
+    bool isPrimary = true;
 };

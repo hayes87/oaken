@@ -23,6 +23,7 @@ namespace Resources {
         SDL_GPUBuffer* GetIndexBuffer() const { return m_IndexBuffer; }
         uint32_t GetVertexCount() const { return m_VertexCount; }
         uint32_t GetIndexCount() const { return m_IndexCount; }
+        const std::vector<glm::mat4>& GetInverseBindMatrices() const { return m_InverseBindMatrices; }
 
         void UpdateMesh(SDL_GPUBuffer* vertexBuffer, SDL_GPUBuffer* indexBuffer, uint32_t vertexCount, uint32_t indexCount);
 
@@ -34,6 +35,7 @@ namespace Resources {
         SDL_GPUBuffer* m_IndexBuffer;
         uint32_t m_VertexCount;
         uint32_t m_IndexCount;
+        std::vector<glm::mat4> m_InverseBindMatrices;
     };
 
 }

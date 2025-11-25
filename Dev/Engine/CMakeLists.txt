@@ -49,6 +49,8 @@ add_library(OakenEngine SHARED
     Source/Systems/EditorSystem.cpp
     Source/Systems/AnimationSystem.h
     Source/Systems/AnimationSystem.cpp
+    Source/Systems/CameraSystem.h
+    Source/Systems/CameraSystem.cpp
 )
 
 # Auto-export all symbols for DLL creation on Windows

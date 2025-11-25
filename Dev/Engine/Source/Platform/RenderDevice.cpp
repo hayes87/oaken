@@ -13,8 +13,8 @@ namespace Platform {
     bool RenderDevice::Init(Window* window) {
         m_Window = window;
 
-        // Request DXIL (D3D12)
-        m_Device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXIL, true, nullptr);
+        // Request SPIR-V (Vulkan)
+        m_Device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
         
         if (!m_Device) {
             std::cerr << "SDL_CreateGPUDevice Error: " << SDL_GetError() << std::endl;

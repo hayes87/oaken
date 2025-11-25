@@ -13,7 +13,7 @@ layout(std140, set = 1, binding = 0) uniform UniformBlock {
     mat4 model;
     mat4 view;
     mat4 proj;
-    mat4 jointMatrices[100];
+    mat4 jointMatrices[256];
 } ubo;
 
 void main() {
@@ -30,5 +30,6 @@ void main() {
 
     gl_Position = ubo.proj * ubo.view * ubo.model * skinMatrix * vec4(inPosition, 1.0);
     outUV = inUV;
-    outNormal = mat3(transpose(inverse(ubo.model * skinMatrix))) * inNormal;
+    // Normalize normal to handle scaling
+    outNormal = normalize(mat3(transpose(inverse(ubo.model * skinMatrix))) * inNormal);
 }

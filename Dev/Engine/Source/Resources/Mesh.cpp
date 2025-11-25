@@ -1,5 +1,6 @@
 #include "Mesh.h"
 #include "../Platform/RenderDevice.h"
+#include <iostream>
 
 namespace Resources {
 
@@ -31,6 +32,7 @@ namespace Resources {
             char signature[4];
             uint32_t vertexCount;
             uint32_t indexCount;
+            uint32_t boneCount;
         };
 
         if (data.size() < sizeof(OakMeshHeader)) return false;
@@ -43,6 +45,25 @@ namespace Resources {
         
         const char* vertexData = data.data() + sizeof(OakMeshHeader);
         const char* indexData = vertexData + vertexDataSize;
+        const char* ibmData = indexData + indexDataSize;
+
+        // Debug Log
+        std::cout << "[Mesh] Loading " << m_Path << std::endl;
+        std::cout << "  Vertices: " << header->vertexCount << std::endl;
+        std::cout << "  Indices: " << header->indexCount << std::endl;
+        if (header->vertexCount > 0) {
+            const Vertex* v = reinterpret_cast<const Vertex*>(vertexData);
+            std::cout << "  V0 Pos: " << v[0].position.x << ", " << v[0].position.y << ", " << v[0].position.z << std::endl;
+            std::cout << "  V0 W: " << v[0].weights.x << ", " << v[0].weights.y << ", " << v[0].weights.z << ", " << v[0].weights.w << std::endl;
+            std::cout << "  V0 J: " << v[0].joints.x << ", " << v[0].joints.y << ", " << v[0].joints.z << ", " << v[0].joints.w << std::endl;
+        }
+
+        // Read IBMs
+        m_InverseBindMatrices.clear();
+        if (header->boneCount > 0) {
+            m_InverseBindMatrices.resize(header->boneCount);
+            memcpy(m_InverseBindMatrices.data(), ibmData, header->boneCount * sizeof(glm::mat4));
+        }
 
         // Create Buffers
         SDL_GPUBufferCreateInfo vertexBufferInfo = {};

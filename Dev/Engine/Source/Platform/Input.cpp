@@ -3,8 +3,9 @@
 
 namespace Platform {
 
-    void Input::Init(Core::EventBus* eventBus) {
+    void Input::Init(Core::EventBus* eventBus, SDL_Window* window) {
         m_EventBus = eventBus;
+        m_Window = window;
         // SDL_GetKeyboardState returns a pointer to the internal state array
         // It is valid for the whole lifetime of the application
         m_KeyboardState = SDL_GetKeyboardState(&m_NumKeys);
@@ -12,6 +13,9 @@ namespace Platform {
 
     void Input::Poll() {
         SDL_PumpEvents();
+        
+        // Update mouse delta once per frame
+        SDL_GetRelativeMouseState(&m_MouseDeltaX, &m_MouseDeltaY);
         
         // Simple polling for actions to dispatch events
         // In a real scenario, we might want to use SDL events directly for "pressed this frame" logic
@@ -69,6 +73,17 @@ namespace Platform {
 
     void Input::MapAction(Core::HashedString action, SDL_Scancode key) {
         m_ActionMap[action.GetHash()] = key;
+    }
+
+    void Input::SetRelativeMouseMode(bool enabled) {
+        if (m_Window) {
+            SDL_SetWindowRelativeMouseMode(m_Window, enabled);
+        }
+    }
+
+    void Input::GetMouseDelta(float& x, float& y) {
+        x = m_MouseDeltaX;
+        y = m_MouseDeltaY;
     }
 
 }

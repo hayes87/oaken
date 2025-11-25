@@ -1,15 +1,13 @@
 #include "RenderSystem.h"
-#include <flecs.h>
-#include "../Core/Log.h"
-#include "../Platform/Window.h"
-#include "../Components/Components.h"
-#include "../Resources/Texture.h"
-#include "../Resources/Mesh.h"
-#include "../Resources/Shader.h"
-#include <fstream>
-#include <vector>
-#include <filesystem>
+#include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <flecs.h>
+#include "../Components/Components.h"
+#include "../Core/Log.h"
+#include "../Resources/Mesh.h"
+#include "../Resources/Texture.h"
+#include "../Resources/Shader.h"
+#include "../Platform/Window.h"
 
 namespace Systems {
 
@@ -236,21 +234,47 @@ namespace Systems {
             if (m_MeshPipeline) {
                 SDL_BindGPUGraphicsPipeline(pass, m_MeshPipeline);
 
-                // Camera Matrices (View/Proj) - For now, hardcoded or identity
-                // TODO: Get from Camera Component
-                glm::mat4 view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-                glm::mat4 proj = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
-                // Vulkan clip space correction
-                proj[1][1] *= -1;
+                // Camera Matrices (View/Proj)
+                glm::mat4 view = glm::mat4(1.0f);
+                glm::mat4 proj = glm::mat4(1.0f);
+                
+                // Find Primary Camera
+                bool cameraFound = false;
+                m_Context.World->query<LocalTransform, const CameraComponent>()
+                    .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
+                        if (cam.isPrimary && !cameraFound) {
+                            // View Matrix (Inverse of Camera Transform)
+                            // Reconstruct camera matrix from position and rotation
+                            glm::mat4 camMatrix = glm::translate(glm::mat4(1.0f), t.position);
+                            camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.y), glm::vec3(0, 1, 0));
+                            camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.x), glm::vec3(1, 0, 0));
+                            camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
+                            
+                            view = glm::inverse(camMatrix);
+
+                            // Projection Matrix
+                            proj = glm::perspectiveRH_ZO(glm::radians(cam.fov), 1280.0f / 720.0f, cam.nearPlane, cam.farPlane);
+                            // proj[1][1] *= -1; // Vulkan clip space correction - Removed as user reported inverted Y
+                            
+                            cameraFound = true;
+                        }
+                    });
+
+                if (!cameraFound) {
+                    // Fallback camera
+                    view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+                    proj = glm::perspectiveRH_ZO(glm::radians(45.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
+                    // proj[1][1] *= -1;
+                }
 
                 m_Context.World->query<WorldTransform, MeshComponent>()
-                    .each([&](flecs::entity e, WorldTransform& t, MeshComponent& m) {
-                    if (m.mesh) {
+                    .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp) {
+                    if (meshComp.mesh) {
                         struct UBO {
                             glm::mat4 model;
                             glm::mat4 view;
                             glm::mat4 proj;
-                            glm::mat4 jointMatrices[100];
+                            glm::mat4 jointMatrices[256];
                         } ubo;
                         
                         ubo.model = t.matrix;
@@ -264,46 +288,40 @@ namespace Systems {
                         }
                         
                         if (animator && !animator->models.empty()) {
-                            size_t count = std::min(animator->models.size(), (size_t)100);
-                            memcpy(ubo.jointMatrices, animator->models.data(), count * sizeof(glm::mat4));
-                            // Fill rest with identity? Or leave garbage (shouldn't be accessed if weights are 0 or indices are valid)
-                            // Better to fill with identity to be safe
-                            for (size_t i = count; i < 100; ++i) ubo.jointMatrices[i] = glm::mat4(1.0f);
+                            size_t count = std::min(animator->models.size(), (size_t)256);
+                            
+                            const auto& ibms = meshComp.mesh->GetInverseBindMatrices();
+                            if (ibms.size() >= count) {
+                                for (size_t i = 0; i < count; ++i) {
+                                    glm::mat4 modelTransform;
+                                    memcpy(&modelTransform, &animator->models[i], sizeof(glm::mat4));
+                                    ubo.jointMatrices[i] = modelTransform * ibms[i];
+                                }
+                                
+                                // Fill rest with identity to be safe
+                                for (size_t i = count; i < 256; ++i) ubo.jointMatrices[i] = glm::mat4(1.0f);
+                            }
                         } else {
-                            for (int i = 0; i < 100; ++i) ubo.jointMatrices[i] = glm::mat4(1.0f);
+                            for (int i = 0; i < 256; ++i) ubo.jointMatrices[i] = glm::mat4(1.0f);
                         }
 
                         SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &ubo, sizeof(ubo));
                         
                         // Bind Vertex Buffers
 
-                        // Skinning
-                        bool hasSkinning = false;
-                        if (e.has<AnimatorComponent>()) {
-                            const AnimatorComponent& animator = e.get<AnimatorComponent>();
-                            if (!animator.models.empty()) {
-                                SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, animator.models.data(), animator.models.size() * sizeof(ozz::math::Float4x4));
-                                hasSkinning = true;
-                            }
-                        }
-
-                        if (!hasSkinning) {
-                            glm::mat4 identity(1.0f);
-                            SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, &identity, sizeof(identity));
-                        }
-
                         SDL_GPUBufferBinding vertexBinding;
-                        vertexBinding.buffer = m.mesh->GetVertexBuffer();
+                        vertexBinding.buffer = meshComp.mesh->GetVertexBuffer();
                         vertexBinding.offset = 0;
                         
                         SDL_GPUBufferBinding indexBinding;
-                        indexBinding.buffer = m.mesh->GetIndexBuffer();
+                        indexBinding.buffer = meshComp.mesh->GetIndexBuffer();
                         indexBinding.offset = 0;
 
                         SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
                         SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
                         
-                        SDL_DrawGPUIndexedPrimitives(pass, m.mesh->GetIndexCount(), 1, 0, 0, 0);
+                        Uint32 indexCount = meshComp.mesh->GetIndexCount();
+                        SDL_DrawGPUIndexedPrimitives(pass, indexCount, 1, 0, 0, 0);
                     }
                 });
             }

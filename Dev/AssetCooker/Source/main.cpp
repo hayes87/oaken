@@ -9,6 +9,7 @@
 #include <iomanip> // For std::quoted
 #include <nlohmann/json.hpp>
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp> // Added for make_mat4
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -25,6 +26,10 @@
 #include <ozz/animation/runtime/animation.h>
 #include <ozz/base/io/archive.h>
 #include <ozz/base/io/stream.h>
+#include <ozz/animation/runtime/local_to_model_job.h>
+#include <ozz/base/maths/soa_transform.h>
+#include <ozz/base/maths/simd_math.h>
+#include <ozz/base/maths/transform.h>
 
 #include <unordered_map>
 
@@ -44,6 +49,7 @@ struct OakMeshHeader {
     char signature[4] = {'O', 'A', 'K', 'M'};
     uint32_t vertexCount = 0;
     uint32_t indexCount = 0;
+    uint32_t boneCount = 0;
 };
 
 struct Vertex {
@@ -57,17 +63,170 @@ struct Vertex {
 void RecurseSkeleton(const aiNode* node, ozz::animation::offline::RawSkeleton::Joint& joint) {
     joint.name = node->mName.C_Str();
     
-    aiVector3D scaling, position;
-    aiQuaternion rotation;
-    node->mTransformation.Decompose(scaling, rotation, position);
+    // Convert Assimp matrix to Ozz Float4x4
+    ozz::math::Float4x4 ozzMat;
+    const aiMatrix4x4& m = node->mTransformation;
+    ozzMat.cols[0] = ozz::math::simd_float4::Load(m.a1, m.b1, m.c1, m.d1);
+    ozzMat.cols[1] = ozz::math::simd_float4::Load(m.a2, m.b2, m.c2, m.d2);
+    ozzMat.cols[2] = ozz::math::simd_float4::Load(m.a3, m.b3, m.c3, m.d3);
+    ozzMat.cols[3] = ozz::math::simd_float4::Load(m.a4, m.b4, m.c4, m.d4);
+
+    ozz::math::Transform transform;
+    if (ozz::math::ToAffine(ozzMat, &transform)) {
+        joint.transform = transform;
+    } else {
+        std::cerr << "[Cooker] Warning: Failed to decompose transform for node '" << joint.name << "', using Assimp decomposition." << std::endl;
+        aiVector3D scaling, position;
+        aiQuaternion rotation;
+        node->mTransformation.Decompose(scaling, rotation, position);
+        
+        joint.transform.translation = ozz::math::Float3(position.x, position.y, position.z);
+        joint.transform.rotation = ozz::math::Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+        joint.transform.scale = ozz::math::Float3(scaling.x, scaling.y, scaling.z);
+    }
     
-    joint.transform.translation = ozz::math::Float3(position.x, position.y, position.z);
-    joint.transform.rotation = ozz::math::Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
-    joint.transform.scale = ozz::math::Float3(scaling.x, scaling.y, scaling.z);
-    
+    // Debug: Check for suspicious scales
+    if (std::abs(joint.transform.scale.x) < 1e-4f || std::abs(joint.transform.scale.y) < 1e-4f || std::abs(joint.transform.scale.z) < 1e-4f) {
+        std::cout << "[Cooker] Warning: Node '" << joint.name << "' has near-zero scale: " 
+                  << joint.transform.scale.x << ", " << joint.transform.scale.y << ", " << joint.transform.scale.z << " -> Forcing to 1.0" << std::endl;
+        joint.transform.scale = ozz::math::Float3(1.0f, 1.0f, 1.0f);
+    }
+
     joint.children.resize(node->mNumChildren);
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
         RecurseSkeleton(node->mChildren[i], joint.children[i]);
+    }
+}
+
+void RecurseMesh(const aiNode* node, const glm::mat4& parentTransform, const aiScene* scene, 
+                 std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
+                 uint32_t& indexOffset, const std::unordered_map<std::string, int>& joint_map, int& matchedBones,
+                 std::vector<glm::mat4>& inverseBindMatrices,
+                 const std::vector<ozz::math::Float4x4>& bindPose) {
+    
+    aiMatrix4x4 m = node->mTransformation;
+    glm::mat4 localTransform;
+    // Transpose for GLM (Column-Major)
+    localTransform[0][0] = m.a1; localTransform[0][1] = m.b1; localTransform[0][2] = m.c1; localTransform[0][3] = m.d1;
+    localTransform[1][0] = m.a2; localTransform[1][1] = m.b2; localTransform[1][2] = m.c2; localTransform[1][3] = m.d2;
+    localTransform[2][0] = m.a3; localTransform[2][1] = m.b3; localTransform[2][2] = m.c3; localTransform[2][3] = m.d3;
+    localTransform[3][0] = m.a4; localTransform[3][1] = m.b4; localTransform[3][2] = m.c4; localTransform[3][3] = m.d4;
+
+    glm::mat4 globalTransform = parentTransform * localTransform;
+    glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(globalTransform)));
+
+    for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+        aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+        std::cout << "[Cooker] Processing Mesh Node '" << node->mName.C_Str() << "' referencing Mesh " << node->mMeshes[i] << std::endl;
+        
+        uint32_t currentMeshVertexOffset = vertices.size();
+        bool isSkinned = mesh->HasBones();
+        
+        for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
+            Vertex vertex;
+            glm::vec4 pos = glm::vec4(mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z, 1.0f);
+            
+            // Only bake transform if NOT skinned. Skinned meshes use IBMs and Bone Transforms.
+            if (!isSkinned) {
+                pos = globalTransform * pos;
+            }
+            
+            vertex.position = glm::vec3(pos);
+            
+            if (mesh->HasNormals()) {
+                glm::vec3 norm = glm::vec3(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z);
+                if (!isSkinned) {
+                    norm = normalMatrix * norm;
+                }
+                vertex.normal = glm::normalize(norm);
+            } else {
+                vertex.normal = { 0.0f, 0.0f, 0.0f };
+            }
+
+            if (mesh->mTextureCoords[0]) {
+                vertex.uv = { mesh->mTextureCoords[0][v].x, 1.0f - mesh->mTextureCoords[0][v].y };
+            } else {
+                vertex.uv = { 0.0f, 0.0f };
+            }
+            
+            vertex.weights = {0.0f, 0.0f, 0.0f, 0.0f};
+            vertex.joints = {0, 0, 0, 0};
+
+            vertices.push_back(vertex);
+        }
+
+        if (mesh->HasBones()) {
+            std::vector<int> boneCounts(mesh->mNumVertices, 0);
+            
+            for (unsigned int b = 0; b < mesh->mNumBones; b++) {
+                aiBone* bone = mesh->mBones[b];
+                std::string boneName = bone->mName.C_Str();
+                
+                if (joint_map.find(boneName) == joint_map.end()) {
+                    continue;
+                }
+                int jointIndex = joint_map.at(boneName);
+                matchedBones++;
+                
+                // Calculate IBM from Ozz Bind Pose
+                // IBM = Inverse(BoneGlobal) * MeshGlobal
+                glm::mat4 boneGlobal(1.0f);
+                if (jointIndex < bindPose.size()) {
+                    const ozz::math::Float4x4& ozzMat = bindPose[jointIndex];
+                    float* ptr = glm::value_ptr(boneGlobal);
+                    ozz::math::StorePtrU(ozzMat.cols[0], ptr + 0);
+                    ozz::math::StorePtrU(ozzMat.cols[1], ptr + 4);
+                    ozz::math::StorePtrU(ozzMat.cols[2], ptr + 8);
+                    ozz::math::StorePtrU(ozzMat.cols[3], ptr + 12);
+                }
+                
+                glm::mat4 ibm = glm::inverse(boneGlobal) * globalTransform;
+                
+                if (jointIndex < inverseBindMatrices.size()) {
+                    inverseBindMatrices[jointIndex] = ibm;
+                }
+
+                for (unsigned int w = 0; w < bone->mNumWeights; w++) {
+                    aiVertexWeight weight = bone->mWeights[w];
+                    uint32_t vertexId = weight.mVertexId;
+                    float weightVal = weight.mWeight;
+                    
+                    if (boneCounts[vertexId] < 4) {
+                        vertices[currentMeshVertexOffset + vertexId].weights[boneCounts[vertexId]] = weightVal;
+                        vertices[currentMeshVertexOffset + vertexId].joints[boneCounts[vertexId]] = jointIndex;
+                        boneCounts[vertexId]++;
+                    }
+                }
+            }
+            
+            // Normalize weights
+            for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
+                glm::vec4& w = vertices[currentMeshVertexOffset + v].weights;
+                float total = w.x + w.y + w.z + w.w;
+                if (total > 0.0f) {
+                    w /= total;
+                } else {
+                    // Unweighted vertex! This will collapse to origin.
+                    // Assign to first bone (usually root) with weight 1.0
+                    // std::cout << "[Cooker] Warning: Unweighted vertex " << v << " in mesh " << node->mName.C_Str() << ". Assigning to bone 0." << std::endl;
+                    w = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+                    vertices[currentMeshVertexOffset + v].joints = glm::uvec4(0, 0, 0, 0);
+                }
+            }
+        }
+
+        for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
+            aiFace face = mesh->mFaces[f];
+            for (unsigned int j = 0; j < face.mNumIndices; j++) {
+                indices.push_back(face.mIndices[j] + indexOffset);
+            }
+        }
+        
+        indexOffset += mesh->mNumVertices;
+    }
+
+    for (unsigned int i = 0; i < node->mNumChildren; i++) {
+        RecurseMesh(node->mChildren[i], globalTransform, scene, vertices, indices, indexOffset, joint_map, matchedBones, inverseBindMatrices, bindPose);
     }
 }
 
@@ -75,8 +234,9 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
     std::cout << "[Cooker] Processing Skeleton: " << input << " -> " << output << std::endl;
 
     Assimp::Importer importer;
+    
     // Preserve hierarchy is important for skeleton
-    const aiScene* scene = importer.ReadFile(input.string(), 0);
+    const aiScene* scene = importer.ReadFile(input.string(), aiProcess_GlobalScale | aiProcess_PopulateArmatureData);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -120,7 +280,8 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
     std::cout << "[Cooker] Processing Animation: " << input << " -> " << output << std::endl;
 
     Assimp::Importer importer;
-    const aiScene* scene = importer.ReadFile(input.string(), 0);
+    
+    const aiScene* scene = importer.ReadFile(input.string(), aiProcess_GlobalScale | aiProcess_PopulateArmatureData);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -183,12 +344,14 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
             track.rotations.push_back(out_key);
         }
         
-        // Scale keys
+            // Scale keys
         for (unsigned int k = 0; k < channel->mNumScalingKeys; ++k) {
             const aiVectorKey& key = channel->mScalingKeys[k];
             ozz::animation::offline::RawAnimation::ScaleKey out_key;
             out_key.time = (float)key.mTime / (float)anim->mTicksPerSecond;
-            out_key.value = ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z);
+            
+            // Force scale to 1.0 to avoid unit conversion issues
+            out_key.value = ozz::math::Float3(1.0f, 1.0f, 1.0f);
             track.scales.push_back(out_key);
         }
     }
@@ -344,8 +507,9 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
     std::cout << "[Cooker] Processing Mesh: " << input << " -> " << output << std::endl;
 
     Assimp::Importer importer;
+    
     const aiScene* scene = importer.ReadFile(input.string(), 
-        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_JoinIdenticalVertices);
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_LimitBoneWeights | aiProcess_PopulateArmatureData | aiProcess_GlobalScale);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -367,78 +531,40 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
         }
     }
 
+    std::vector<glm::mat4> inverseBindMatrices;
+    std::vector<ozz::math::Float4x4> bindPose;
+    if (skeleton) {
+        inverseBindMatrices.resize(skeleton->num_joints(), glm::mat4(1.0f));
+        
+        // Compute Bind Pose
+        bindPose.resize(skeleton->num_joints());
+        ozz::animation::LocalToModelJob job;
+        job.input = skeleton->joint_rest_poses();
+        job.output = ozz::make_span(bindPose);
+        job.skeleton = skeleton.get();
+        if (!job.Run()) {
+            std::cerr << "[Cooker] Failed to compute bind pose." << std::endl;
+            return false;
+        }
+
+        std::cout << "[Cooker] Skeleton has " << skeleton->num_joints() << " joints." << std::endl;
+    }
+
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     uint32_t indexOffset = 0;
+    int matchedBones = 0;
 
-    // Simple merge of all meshes (ignoring node hierarchy transforms for now)
-    for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
-        aiMesh* mesh = scene->mMeshes[i];
-        uint32_t currentMeshVertexOffset = vertices.size();
-        
-        for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
-            Vertex vertex;
-            vertex.position = { mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z };
-            
-            if (mesh->HasNormals()) {
-                vertex.normal = { mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z };
-            } else {
-                vertex.normal = { 0.0f, 0.0f, 0.0f };
-            }
-
-            if (mesh->mTextureCoords[0]) {
-                vertex.uv = { mesh->mTextureCoords[0][v].x, mesh->mTextureCoords[0][v].y };
-            } else {
-                vertex.uv = { 0.0f, 0.0f };
-            }
-            
-            vertex.weights = {0.0f, 0.0f, 0.0f, 0.0f};
-            vertex.joints = {0, 0, 0, 0};
-
-            vertices.push_back(vertex);
-        }
-
-        if (mesh->HasBones()) {
-            std::vector<int> boneCounts(mesh->mNumVertices, 0);
-            
-            for (unsigned int b = 0; b < mesh->mNumBones; b++) {
-                aiBone* bone = mesh->mBones[b];
-                std::string boneName = bone->mName.C_Str();
-                
-                if (joint_map.find(boneName) == joint_map.end()) continue;
-                int jointIndex = joint_map[boneName];
-                
-                for (unsigned int w = 0; w < bone->mNumWeights; w++) {
-                    aiVertexWeight weight = bone->mWeights[w];
-                    uint32_t vertexId = weight.mVertexId;
-                    float weightVal = weight.mWeight;
-                    
-                    if (boneCounts[vertexId] < 4) {
-                        vertices[currentMeshVertexOffset + vertexId].weights[boneCounts[vertexId]] = weightVal;
-                        vertices[currentMeshVertexOffset + vertexId].joints[boneCounts[vertexId]] = jointIndex;
-                        boneCounts[vertexId]++;
-                    }
-                }
-            }
-            
-            // Normalize weights
-            for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
-                glm::vec4& w = vertices[currentMeshVertexOffset + v].weights;
-                float total = w.x + w.y + w.z + w.w;
-                if (total > 0.0f) {
-                    w /= total;
-                }
-            }
-        }
-
-        for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
-            aiFace face = mesh->mFaces[f];
-            for (unsigned int j = 0; j < face.mNumIndices; j++) {
-                indices.push_back(face.mIndices[j] + indexOffset);
-            }
-        }
-        
-        indexOffset += mesh->mNumVertices;
+    // Traverse node hierarchy to process meshes with correct transforms
+    RecurseMesh(scene->mRootNode, glm::mat4(1.0f), scene, vertices, indices, indexOffset, joint_map, matchedBones, inverseBindMatrices, bindPose);
+    
+    std::cout << "[Cooker] Total matched bones: " << matchedBones << std::endl;
+    if (inverseBindMatrices.size() > 0) {
+        glm::mat4& m = inverseBindMatrices[0];
+        std::cout << "[Cooker] First IBM: " << m[0][0] << " " << m[0][1] << " " << m[0][2] << " " << m[0][3] << std::endl;
+        std::cout << "                    " << m[1][0] << " " << m[1][1] << " " << m[1][2] << " " << m[1][3] << std::endl;
+        std::cout << "                    " << m[2][0] << " " << m[2][1] << " " << m[2][2] << " " << m[2][3] << std::endl;
+        std::cout << "                    " << m[3][0] << " " << m[3][1] << " " << m[3][2] << " " << m[3][3] << std::endl;
     }
 
     // Write to file
@@ -455,10 +581,16 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
         OakMeshHeader header;
         header.vertexCount = static_cast<uint32_t>(vertices.size());
         header.indexCount = static_cast<uint32_t>(indices.size());
+        header.boneCount = static_cast<uint32_t>(inverseBindMatrices.size());
 
         outFile.write(reinterpret_cast<const char*>(&header), sizeof(OakMeshHeader));
         outFile.write(reinterpret_cast<const char*>(vertices.data()), vertices.size() * sizeof(Vertex));
         outFile.write(reinterpret_cast<const char*>(indices.data()), indices.size() * sizeof(uint32_t));
+        
+        if (header.boneCount > 0) {
+            outFile.write(reinterpret_cast<const char*>(inverseBindMatrices.data()), inverseBindMatrices.size() * sizeof(glm::mat4));
+        }
+
         outFile.close();
 
         if (fs::exists(output)) fs::remove(output);
@@ -646,17 +778,12 @@ int main(int argc, char** argv) {
                 success = CookAnimation(input, output);
             }
             return success ? 0 : 1;
-        } else {
-            std::cerr << "Usage: AssetCooker COOK <TYPE> <INPUT> <OUTPUT>" << std::endl;
-            return 1;
         }
+        std::cerr << "Usage: AssetCooker COOK <TYPE> <INPUT> <OUTPUT>" << std::endl;
+        return 1;
     }
 
-    // Interactive Mode
-    std::cout << "[Cooker] Asset Cooker Service Started" << std::endl;
-    std::cout << "[Cooker] Waiting for commands..." << std::endl;
-
-    // Main loop: Read commands from stdin
+    // Interactive Mode (Service)
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;

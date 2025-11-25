@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oaken Engine: Mesh Skinning Retrospective</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Oaken Engine</h1>
+        <p>Mesh Skinning & Import Pipeline Retrospective</p>
+    </header>
+
+    <div class="container">
+        <section id="overview">
+            <h2>1. The Problem</h2>
+            <p>
+                During the integration of the <code>Joli.fbx</code> character asset, we encountered severe mesh distortion ("spiky" artifacts) and runtime instability. 
+                The mesh appeared collapsed or exploded when animation was applied.
+            </p>
+            <div class="alert alert-danger">
+                <strong>Symptoms:</strong>
+                <ul>
+                    <li>Mesh vertices stretched to infinity or collapsed to origin.</li>
+                    <li>Joint count discrepancy: Assimp reported 211 nodes, but only 52 skinned bones.</li>
+                    <li>Vulkan validation errors regarding Uniform Buffer Object (UBO) sizes.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="architecture">
+            <h2>2. Pipeline Architecture</h2>
+            <p>The Oaken Engine uses a custom asset pipeline to process raw assets into runtime-optimized binary formats.</p>
+            
+            <h3>Data Flow</h3>
+            <div class="diagram">
+                [Raw Asset (FBX)] <br>
+                ↓ <br>
+                <strong>AssetCooker (Assimp + Ozz)</strong> <br>
+                ↓ <br>
+                [.oakmesh] [.oakskel] [.oakanim] <br>
+                ↓ <br>
+                <strong>Engine (Runtime)</strong> <br>
+                ↓ <br>
+                [Vulkan/SDL_GPU RenderSystem]
+            </div>
+
+            <h3>File Formats</h3>
+            <ul>
+                <li><strong>FBX (Input)</strong>: Autodesk Filmbox format. Contains geometry, skeleton hierarchy, and animation data. Read using <code>Assimp</code>.</li>
+                <li><strong>.oakmesh (Custom)</strong>: Binary format containing:
+                    <ul>
+                        <li>Vertex Data (Position, Normal, UV, Weights, Joint Indices).</li>
+                        <li>Inverse Bind Matrices (IBMs).</li>
+                    </ul>
+                </li>
+                <li><strong>.oakskel (Ozz)</strong>: Serialized <code>ozz::animation::Skeleton</code>. Represents the joint hierarchy.</li>
+                <li><strong>.oakanim (Ozz)</strong>: Serialized <code>ozz::animation::Animation</code>. Contains keyframe data.</li>
+            </ul>
+        </section>
+
+        <section id="investigation">
+            <h2>3. Technical Deep Dive</h2>
+            
+            <h3>3.1. Matrix Major-Order Mismatch</h3>
+            <p>
+                A critical issue was the mismatch between how Assimp stores matrices and how GLM/OpenGL/Vulkan expect them.
+            </p>
+            <ul>
+                <li><strong>Assimp</strong>: Row-Major (Translation is in the last <em>row</em>: <code>a4, b4, c4</code>).</li>
+                <li><strong>GLM / Shader</strong>: Column-Major (Translation is in the last <em>column</em>).</li>
+            </ul>
+            <p>
+                When using <code>glm::make_mat4</code> on Assimp data, it reads the memory linearly. Because the memory layout of a Row-Major matrix (read as Column-Major) effectively produces a <strong>Transposed</strong> matrix, the translation components ended up in the bottom row (shear/perspective) instead of the last column.
+            </p>
+
+            <h3>3.2. The "Zero Scale" Hierarchy Bug</h3>
+            <p>
+                The <code>Joli.fbx</code> skeleton contains 211 nodes. Many of these are "helper" nodes or IK targets used by the modeling software (e.g., Mixamo/Blender).
+                Investigation revealed that some of these nodes had a local scale of near-zero (e.g., <code>0.002</code>).
+            </p>
+            <p>
+                In a hierarchical skeleton, transforms multiply down the chain:
+                <br>
+                <code>GlobalTransform = ParentGlobal * LocalTransform</code>
+            </p>
+            <p>
+                If a parent node has a scale of 0, all children effectively collapse to the parent's position. When the skinning shader applies this (via the Inverse Bind Matrix), vertices are pulled to incorrect locations, causing the "spiky" look.
+            </p>
+
+            <h3>3.3. Uniform Buffer Overflow</h3>
+            <p>
+                The Vertex Shader defined a fixed array size for joint matrices:
+            </p>
+            <pre><code>layout(std140, set = 1, binding = 0) uniform UniformBlock {
+    ...
+    mat4 jointMatrices[100]; // OLD SIZE
+} ubo;</code></pre>
+            <p>
+                The skeleton had 211 joints. Writing 211 matrices into a buffer sized for 100 caused memory corruption on the GPU, leading to crashes or undefined behavior.
+            </p>
+        </section>
+
+        <section id="solution">
+            <h2>4. The Solution</h2>
+
+            <h3>Fix 1: Matrix Transposition</h3>
+            <p>In <code>AssetCooker/main.cpp</code>, we explicitly transpose the Assimp matrix to convert it to the correct GLM Column-Major format.</p>
+            <pre><code>// Capture IBM
+aiMatrix4x4 offset = bone->mOffsetMatrix;
+// Assimp is Row-Major, GLM is Column-Major.
+// glm::make_mat4 reads row-major data as column-major, effectively transposing it.
+// So we need to transpose it back to get the correct matrix.
+glm::mat4 ibm = glm::transpose(glm::make_mat4(&offset.a1));
+inverseBindMatrices[jointIndex] = ibm;</code></pre>
+
+            <h3>Fix 2: Sanitizing Scale</h3>
+            <p>In <code>RecurseSkeleton</code>, we detect and neutralize dangerous scale values in the hierarchy.</p>
+            <pre><code>// Debug: Check for suspicious scales
+if (std::abs(scaling.x) < 0.01f || std::abs(scaling.y) < 0.01f || std::abs(scaling.z) < 0.01f) {
+    std::cout << "[Cooker] Warning: Node '" << joint.name << "' has near-zero scale..." << std::endl;
+}
+
+// Force scale to 1.0 to avoid issues with helper nodes collapsing the mesh
+joint.transform.scale = ozz::math::Float3(1.0f, 1.0f, 1.0f);</code></pre>
+
+            <h3>Fix 3: Increasing Buffer Size</h3>
+            <p>Updated <code>Mesh.vert</code> and <code>RenderSystem.cpp</code> to support up to 256 joints.</p>
+            <pre><code>// Shader
+mat4 jointMatrices[256];
+
+// C++
+struct UBO {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+    glm::mat4 jointMatrices[256];
+} ubo;</code></pre>
+        </section>
+    </div>
+
+    <footer>
+        <p>Generated by GitHub Copilot for Oaken Engine Development</p>
+    </footer>
+</body>
+</html>
