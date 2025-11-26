@@ -75,3 +75,23 @@ struct CameraFollowComponent {
     float sensitivity = 0.2f;   // Mouse sensitivity
     float zoomSpeed = 1.0f;     // Scroll wheel zoom speed
 };
+
+// Character movement states
+enum class CharacterState {
+    Idle,
+    Walking,
+    Running,
+    Jumping,
+    Falling
+};
+
+// Character controller for player/NPC movement
+struct CharacterController {
+    glm::vec3 velocity = {0.0f, 0.0f, 0.0f};
+    float moveSpeed = 5.0f;         // Units per second
+    float runMultiplier = 2.0f;     // Speed multiplier when running
+    float turnSpeed = 10.0f;        // Rotation speed (degrees per second)
+    float targetYaw = 0.0f;         // Target rotation (character faces this direction)
+    CharacterState state = CharacterState::Idle;
+    bool isGrounded = true;         // For future physics integration
+};

@@ -40,9 +40,9 @@
     - [x] **Component**: Create `Camera` component (FOV, Near/Far, Perspective/Ortho).
     - [x] **System**: Implement `CameraSystem` to manage View/Projection matrices.
     - [x] **Controller**: Implement `CameraFollow` logic (Third-person orbit/chase).
-- [ ] **Character Controller**:
-    - [ ] Implement `CharacterController` component (Velocity, State).
-    - [ ] Map Input to Character Movement.
+- [x] **Character Controller**:
+    - [x] Implement `CharacterController` component (Velocity, State).
+    - [x] Map Input to Character Movement.
 
 ## Phase 5: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:

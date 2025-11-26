@@ -83,13 +83,22 @@ GAME_EXPORT void GameInit(Engine& engine) {
     if (engine.GetContext().World->count<MeshComponent>() == 0 && g_TestMesh) {
         meshEntity = engine.GetContext().World->entity("TestMesh")
             .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
-            .set<MeshComponent>({g_TestMesh});
+            .set<MeshComponent>({g_TestMesh})
+            .set<CharacterController>({ 
+                {0.0f, 0.0f, 0.0f},  // velocity
+                3.0f,                 // moveSpeed (scaled for small character)
+                2.0f,                 // runMultiplier
+                10.0f,                // turnSpeed
+                0.0f,                 // targetYaw
+                CharacterState::Idle, // state
+                true                  // isGrounded
+            });
          
         if (g_TestSkeleton) {
             meshEntity.set<AnimatorComponent>({g_TestSkeleton, g_TestAnimation});
             LOG_INFO("Added AnimatorComponent to TestMesh entity");
         }
-        LOG_INFO("Created TestMesh entity with MeshComponent");
+        LOG_INFO("Created TestMesh entity with MeshComponent and CharacterController");
     } else {
         meshEntity = engine.GetContext().World->lookup("TestMesh");
     }

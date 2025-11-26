@@ -84,6 +84,7 @@ bool Engine::Init() {
     m_EditorSystem->Init();
     m_TransformSystem->Init();
     m_CameraSystem = std::make_unique<Systems::CameraSystem>(*m_Context.World, *m_Input);
+    m_CharacterSystem = std::make_unique<Systems::CharacterSystem>(*m_Context.World, *m_Input);
     
     // Map some test input
     m_Input->MapAction("Cast_Slot_1"_hs, SDL_SCANCODE_SPACE);
