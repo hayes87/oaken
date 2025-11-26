@@ -154,13 +154,12 @@ bool Engine::Step() {
     {
         PROFILE_SCOPE("Render");
         m_RenderSystem->BeginFrame();
+        m_RenderSystem->DrawScene(alpha);
         
-        // Debug: Draw physics colliders (must be before DrawScene which renders and clears lines)
+        // Debug: Draw physics colliders
         if (m_DebugPhysics) {
             m_RenderSystem->DrawPhysicsDebug();
         }
-        
-        m_RenderSystem->DrawScene(alpha);
         
         if (m_EditorMode) {
             m_EditorSystem->DrawUI(m_Context.World);

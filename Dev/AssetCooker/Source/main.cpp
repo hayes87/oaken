@@ -239,11 +239,8 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
     // This creates cleaner skeletons without $AssimpFbx$ intermediate nodes
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
     
-    // Convert from FBX units (usually centimeters) to meters
-    importer.SetPropertyFloat(AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, 0.01f);
-    
     const aiScene* scene = importer.ReadFile(input.string(), 
-        aiProcess_PopulateArmatureData | aiProcess_GlobalScale);
+        aiProcess_PopulateArmatureData);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -301,11 +298,8 @@ bool CookAnimation(const fs::path& input, const fs::path& output, const fs::path
     // This creates cleaner skeletons without $AssimpFbx$ intermediate nodes
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
     
-    // Convert from FBX units (usually centimeters) to meters
-    importer.SetPropertyFloat(AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, 0.01f);
-    
     const aiScene* scene = importer.ReadFile(input.string(), 
-        aiProcess_PopulateArmatureData | aiProcess_GlobalScale);
+        aiProcess_PopulateArmatureData);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -646,13 +640,9 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
     // This creates cleaner skeletons without $AssimpFbx$ intermediate nodes
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
     
-    // Convert from FBX units (usually centimeters) to meters
-    // This ensures engine works in meters regardless of source file units
-    importer.SetPropertyFloat(AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, 0.01f);
-    
     const aiScene* scene = importer.ReadFile(input.string(), 
         aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_LimitBoneWeights | 
-        aiProcess_PopulateArmatureData | aiProcess_GlobalScale);
+        aiProcess_PopulateArmatureData);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;

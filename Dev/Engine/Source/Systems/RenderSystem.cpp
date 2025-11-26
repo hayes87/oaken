@@ -749,13 +749,9 @@ namespace Systems {
     }
 
     void RenderSystem::DrawPhysicsDebug() {
-        int colliderCount = 0;
-        int characterCount = 0;
-        
         // Draw colliders for all entities with Collider component
         m_Context.World->query<const LocalTransform, const Collider>()
-            .each([this, &colliderCount](flecs::entity e, const LocalTransform& transform, const Collider& collider) {
-                colliderCount++;
+            .each([this](flecs::entity e, const LocalTransform& transform, const Collider& collider) {
                 glm::vec3 color = {0.0f, 1.0f, 0.0f}; // Green for static
                 
                 // Check if it has a RigidBody to determine color
@@ -788,23 +784,15 @@ namespace Systems {
         
         // Draw character physics capsules
         m_Context.World->query<const LocalTransform, const CharacterPhysics>()
-            .each([this, &characterCount](flecs::entity e, const LocalTransform& transform, const CharacterPhysics& physics) {
-                characterCount++;
+            .each([this](flecs::entity e, const LocalTransform& transform, const CharacterPhysics& physics) {
                 glm::vec3 color = {1.0f, 1.0f, 0.0f}; // Yellow for character
                 if (physics.isOnGround) {
                     color = {0.0f, 1.0f, 1.0f}; // Cyan when grounded
                 }
                 
-                // Draw capsule at transform position (same as physics)
-                DrawWireCapsule(transform.position, physics.height, physics.radius, color);
+                // Character capsule center is at transform position
+                DrawWireCapsule(transform.position, physics.height * 0.5f, physics.radius, color);
             });
-        
-        // Debug log once per second
-        static int frameCount = 0;
-        if (frameCount++ % 60 == 0) {
-            LOG_CORE_INFO("DrawPhysicsDebug: {} colliders, {} characters, {} line verts", 
-                colliderCount, characterCount, m_LineVertices.size());
-        }
     }
 
     void RenderSystem::EndFrame() {

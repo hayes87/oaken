@@ -169,7 +169,7 @@ struct RigidBody {
 
 // Character physics component - uses Jolt's CharacterVirtual for responsive movement
 struct CharacterPhysics {
-    float height = 0.6f;                     // Character capsule height
+    float height = 1.8f;                     // Character capsule height
     float radius = 0.3f;                     // Character capsule radius
     float mass = 70.0f;                      // Mass for push interactions
     float maxSlopeAngle = 45.0f;             // Max walkable slope in degrees

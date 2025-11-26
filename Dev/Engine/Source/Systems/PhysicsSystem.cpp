@@ -320,7 +320,6 @@ namespace Systems {
             if (!character) return;
 
             // Set position from ECS (in case it was moved externally)
-            // Physics capsule center = transform position
             character->SetPosition(RVec3(transform.position.x, transform.position.y, transform.position.z));
 
             // Apply velocity from CharacterController
@@ -357,6 +356,7 @@ namespace Systems {
                     velocity.GetX(), velocity.GetY(), velocity.GetZ());
             }
             
+            transform.position = glm::vec3(newPos.GetX(), newPos.GetY(), newPos.GetZ());
             transform.position = glm::vec3(newPos.GetX(), newPos.GetY(), newPos.GetZ());
 
             // Update controller grounded state
@@ -485,7 +485,6 @@ namespace Systems {
         settings.mPenetrationRecoverySpeed = 1.0f;
         settings.mPredictiveContactDistance = 0.1f;
 
-        // Position is at transform - capsule center
         RVec3 position(transform.position.x, transform.position.y, transform.position.z);
         Quat rotation = Quat::sIdentity();
 
