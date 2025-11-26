@@ -81,6 +81,8 @@ struct CameraFollowComponent {
     glm::vec3 offset = {0.0f, 1.5f, 0.0f}; // Offset from target pivot (e.g., look at head not feet)
     float sensitivity = 0.2f;   // Mouse sensitivity
     float zoomSpeed = 1.0f;     // Scroll wheel zoom speed
+    float positionSmoothing = 0.1f;  // Camera position lag (0 = instant, 1 = very slow)
+    glm::vec3 currentLookAt = {0.0f, 0.0f, 0.0f}; // Current interpolated look-at position (runtime)
 };
 
 // Character movement states

@@ -6,11 +6,13 @@
 #include <vector>
 #include <filesystem>
 #include <SDL3/SDL.h>
+#include <glm/glm.hpp>
 
 namespace Platform { class RenderDevice; }
 
 namespace Resources {
 
+    struct Vertex;
     class Texture;
     class Mesh;
     class Shader;
@@ -46,6 +48,7 @@ namespace Resources {
 
         std::shared_ptr<Texture> LoadTexture(const std::string& path);
         std::shared_ptr<Mesh> LoadMesh(const std::string& path);
+        std::shared_ptr<Mesh> CreatePrimitiveMesh(const std::string& name, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
         std::shared_ptr<Shader> LoadShader(const std::string& path, SDL_GPUShaderStage stage, 
             uint32_t samplers = 0, uint32_t storageTextures = 0, uint32_t storageBuffers = 0, uint32_t uniformBuffers = 0);
         std::shared_ptr<Skeleton> LoadSkeleton(const std::string& path);

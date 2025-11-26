@@ -8,6 +8,7 @@
 #include "Resources/Mesh.h"
 #include "Resources/Skeleton.h"
 #include "Resources/Animation.h"
+#include "Resources/ResourceManager.h"
 #include <memory>
 #include <filesystem>
 
@@ -19,6 +20,107 @@ std::shared_ptr<Resources::Mesh> g_TestMesh;
 std::shared_ptr<Resources::Skeleton> g_TestSkeleton;
 std::shared_ptr<Resources::Animation> g_IdleAnimation;
 std::shared_ptr<Resources::Animation> g_RunAnimation;
+
+// Test level meshes
+std::shared_ptr<Resources::Mesh> g_GroundMesh;
+std::shared_ptr<Resources::Mesh> g_CubeMesh;
+
+// Helper to create a ground plane mesh
+std::shared_ptr<Resources::Mesh> CreateGroundPlane(Resources::ResourceManager& rm, float size, int subdivisions) {
+    std::vector<Resources::Vertex> vertices;
+    std::vector<uint32_t> indices;
+    
+    float halfSize = size * 0.5f;
+    float step = size / subdivisions;
+    
+    // Create grid of vertices
+    for (int z = 0; z <= subdivisions; z++) {
+        for (int x = 0; x <= subdivisions; x++) {
+            Resources::Vertex v;
+            v.position = glm::vec3(-halfSize + x * step, 0.0f, -halfSize + z * step);
+            v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            v.uv = glm::vec2(static_cast<float>(x) / subdivisions, static_cast<float>(z) / subdivisions);
+            v.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            v.joints = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            vertices.push_back(v);
+        }
+    }
+    
+    // Create triangles
+    for (int z = 0; z < subdivisions; z++) {
+        for (int x = 0; x < subdivisions; x++) {
+            uint32_t topLeft = z * (subdivisions + 1) + x;
+            uint32_t topRight = topLeft + 1;
+            uint32_t bottomLeft = (z + 1) * (subdivisions + 1) + x;
+            uint32_t bottomRight = bottomLeft + 1;
+            
+            // First triangle
+            indices.push_back(topLeft);
+            indices.push_back(bottomLeft);
+            indices.push_back(topRight);
+            
+            // Second triangle
+            indices.push_back(topRight);
+            indices.push_back(bottomLeft);
+            indices.push_back(bottomRight);
+        }
+    }
+    
+    return rm.CreatePrimitiveMesh("ground_" + std::to_string(static_cast<int>(size)), vertices, indices);
+}
+
+// Helper to create a cube mesh
+std::shared_ptr<Resources::Mesh> CreateCube(Resources::ResourceManager& rm, float size) {
+    float h = size * 0.5f;
+    
+    std::vector<Resources::Vertex> vertices;
+    std::vector<uint32_t> indices;
+    
+    // Face data: position offsets and normal for each face
+    struct Face { glm::vec3 normal; glm::vec3 right; glm::vec3 up; };
+    Face faces[] = {
+        { {0, 0, 1}, {1, 0, 0}, {0, 1, 0} },   // Front
+        { {0, 0, -1}, {-1, 0, 0}, {0, 1, 0} }, // Back
+        { {1, 0, 0}, {0, 0, -1}, {0, 1, 0} },  // Right
+        { {-1, 0, 0}, {0, 0, 1}, {0, 1, 0} },  // Left
+        { {0, 1, 0}, {1, 0, 0}, {0, 0, -1} },  // Top
+        { {0, -1, 0}, {1, 0, 0}, {0, 0, 1} },  // Bottom
+    };
+    
+    for (const auto& face : faces) {
+        uint32_t baseIdx = static_cast<uint32_t>(vertices.size());
+        
+        // 4 corners of the face
+        glm::vec3 center = face.normal * h;
+        glm::vec3 corners[4] = {
+            center - face.right * h - face.up * h,
+            center + face.right * h - face.up * h,
+            center + face.right * h + face.up * h,
+            center - face.right * h + face.up * h,
+        };
+        glm::vec2 uvs[4] = { {0,1}, {1,1}, {1,0}, {0,0} };
+        
+        for (int i = 0; i < 4; i++) {
+            Resources::Vertex v;
+            v.position = corners[i];
+            v.normal = face.normal;
+            v.uv = uvs[i];
+            v.weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+            v.joints = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            vertices.push_back(v);
+        }
+        
+        // Two triangles per face
+        indices.push_back(baseIdx);
+        indices.push_back(baseIdx + 1);
+        indices.push_back(baseIdx + 2);
+        indices.push_back(baseIdx);
+        indices.push_back(baseIdx + 2);
+        indices.push_back(baseIdx + 3);
+    }
+    
+    return rm.CreatePrimitiveMesh("cube_" + std::to_string(static_cast<int>(size * 100)), vertices, indices);
+}
 
 GAME_EXPORT void GameInit(Engine& engine) {
     LOG_INFO("GameInit: Initializing Sandbox Game Module");
@@ -176,12 +278,77 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 80.0f,          // maxPitch
                 {0.0f, 0.8f, 0.0f}, // offset (look at character center, scaled)
                 0.2f,           // sensitivity
-                1.0f            // zoomSpeed
+                1.0f,           // zoomSpeed
+                0.85f,          // positionSmoothing (camera lag - higher = more lag)
+                {0.0f, 0.0f, 0.0f}  // currentLookAt (runtime, starts at origin)
             });
             LOG_INFO("Created MainCamera with third-person follow on TestMesh");
         } else {
             LOG_INFO("Created MainCamera entity (free-flight mode)");
         }
+    }
+
+    // ============================================
+    // CREATE TEST LEVEL GEOMETRY
+    // ============================================
+    
+    // Create ground plane
+    g_GroundMesh = CreateGroundPlane(engine.GetResourceManager(), 100.0f, 20);
+    if (g_GroundMesh) {
+        engine.GetContext().World->entity("Ground")
+            .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+            .set<MeshComponent>({g_GroundMesh});
+        LOG_INFO("Created Ground plane");
+    }
+    
+    // Create procedural cube mesh for obstacles
+    g_CubeMesh = CreateCube(engine.GetResourceManager(), 1.0f);
+    if (g_CubeMesh) {
+        // Create a variety of obstacles around the level
+        struct ObstacleInfo { glm::vec3 pos; glm::vec3 scale; float rotY; };
+        std::vector<ObstacleInfo> obstacles = {
+            // Central area - some scattered cubes
+            { {5.0f, 0.0f, 0.0f}, {1.0f, 2.0f, 1.0f}, 0.0f },
+            { {-4.0f, 0.0f, 3.0f}, {1.5f, 1.0f, 1.5f}, 45.0f },
+            { {3.0f, 0.0f, -5.0f}, {0.8f, 3.0f, 0.8f}, 30.0f },
+            { {-6.0f, 0.0f, -4.0f}, {2.0f, 0.5f, 2.0f}, 0.0f },
+            
+            // Platform / staircase area
+            { {10.0f, 0.0f, 10.0f}, {3.0f, 0.3f, 3.0f}, 0.0f },
+            { {10.0f, 0.6f, 10.0f}, {2.0f, 0.3f, 2.0f}, 0.0f },
+            { {10.0f, 1.2f, 10.0f}, {1.0f, 0.3f, 1.0f}, 0.0f },
+            
+            // Wall section
+            { {-10.0f, 0.0f, 0.0f}, {0.5f, 2.5f, 8.0f}, 0.0f },
+            
+            // Scattered pillars
+            { {15.0f, 0.0f, -8.0f}, {1.0f, 4.0f, 1.0f}, 0.0f },
+            { {-12.0f, 0.0f, 12.0f}, {1.0f, 4.0f, 1.0f}, 0.0f },
+            { {8.0f, 0.0f, -15.0f}, {1.0f, 4.0f, 1.0f}, 0.0f },
+            { {-15.0f, 0.0f, -10.0f}, {1.0f, 4.0f, 1.0f}, 0.0f },
+            
+            // Ramp-like structures
+            { {20.0f, 0.0f, 5.0f}, {4.0f, 0.5f, 2.0f}, 15.0f },
+            { {-20.0f, 0.0f, -5.0f}, {4.0f, 0.5f, 2.0f}, -20.0f },
+            
+            // Maze-like corner
+            { {-20.0f, 0.0f, 15.0f}, {0.5f, 1.5f, 5.0f}, 0.0f },
+            { {-17.0f, 0.0f, 18.0f}, {5.0f, 1.5f, 0.5f}, 0.0f },
+            { {-14.0f, 0.0f, 15.0f}, {0.5f, 1.5f, 5.0f}, 0.0f },
+        };
+        
+        int obstacleIdx = 0;
+        for (const auto& obs : obstacles) {
+            std::string name = "Obstacle_" + std::to_string(obstacleIdx++);
+            engine.GetContext().World->entity(name.c_str())
+                .set<LocalTransform>({ 
+                    {obs.pos.x, obs.pos.y + obs.scale.y * 0.5f - 1.0f, obs.pos.z},  // Offset Y so bottom is at ground
+                    {0.0f, obs.rotY, 0.0f}, 
+                    obs.scale 
+                })
+                .set<MeshComponent>({g_CubeMesh});
+        }
+        LOG_INFO("Created {} obstacle entities", obstacles.size());
     }
 
     // Create Directional Light (sun)
@@ -211,30 +378,13 @@ GAME_EXPORT void GameInit(Engine& engine) {
     if (engine.GetContext().World->count<AttributeSet>() == 0) {
         engine.GetContext().World->entity("Player")
             .set<AttributeSet>({100.0f, 100.0f, 100.0f, 100.0f, 10.0f});
-
-        // Add a static cube for testing
-        std::string cubePath = "../Cooked/Assets/Models/cube.oakmesh";
-        if (std::filesystem::exists(cubePath)) {
-            auto cubeMesh = engine.GetResourceManager().LoadMesh(cubePath);
-            if (cubeMesh) {
-                engine.GetContext().World->entity("Cube")
-                    .set<LocalTransform>({ {2.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
-                    .set<MeshComponent>({cubeMesh});
-                LOG_INFO("Created Cube entity");
-            }
-        }
-    } else {
-        // If entity exists (reloaded), update texture
-        auto e = engine.GetContext().World->lookup("Player");
-        if (e && g_TestTexture) {
-            e.set<SpriteComponent>({g_TestTexture, {1,1,1,1}});
-            LOG_INFO("Updated SpriteComponent on Player entity");
-        }
     }
 }
 
 GAME_EXPORT void GameShutdown(Engine& engine) {
     LOG_INFO("GameShutdown: Unloading Sandbox Game Module");
     g_GamePlaySystem.reset();
+    g_GroundMesh.reset();
+    g_CubeMesh.reset();
     // We don't unregister components usually as that clears data
 }

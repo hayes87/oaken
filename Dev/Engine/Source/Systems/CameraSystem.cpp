@@ -23,6 +23,8 @@ namespace Systems {
                     auto follows = it.field<CameraFollowComponent>(1);
                     auto cameras = it.field<const CameraComponent>(2);
 
+                    float dt = it.delta_time();
+
                     for (auto i : it) {
                         if (!cameras[i].isPrimary) continue;
 
@@ -49,6 +51,19 @@ namespace Systems {
                             }
                         }
 
+                        // Smooth interpolation for camera lag
+                        // positionSmoothing: 0 = instant, higher = more lag
+                        float smoothFactor = 1.0f - std::pow(follow.positionSmoothing, dt * 60.0f);
+                        smoothFactor = std::clamp(smoothFactor, 0.0f, 1.0f);
+                        
+                        // Initialize currentLookAt on first frame
+                        if (glm::length(follow.currentLookAt) < 0.001f && glm::length(targetPos) > 0.001f) {
+                            follow.currentLookAt = targetPos;
+                        }
+                        
+                        // Smoothly interpolate the look-at target
+                        follow.currentLookAt = glm::mix(follow.currentLookAt, targetPos, smoothFactor);
+
                         // Calculate camera position using spherical coordinates
                         float pitchRad = glm::radians(follow.pitch);
                         float yawRad = glm::radians(follow.yaw);
@@ -58,10 +73,10 @@ namespace Systems {
                         cameraOffset.y = follow.distance * sin(pitchRad);
                         cameraOffset.z = follow.distance * cos(pitchRad) * cos(yawRad);
 
-                        transform.position = targetPos + cameraOffset;
+                        transform.position = follow.currentLookAt + cameraOffset;
 
-                        // Calculate rotation to look at target
-                        glm::vec3 direction = glm::normalize(targetPos - transform.position);
+                        // Calculate rotation to look at the smoothed target
+                        glm::vec3 direction = glm::normalize(follow.currentLookAt - transform.position);
                         transform.rotation.y = glm::degrees(atan2(-direction.x, -direction.z));
                         transform.rotation.x = glm::degrees(asin(direction.y));
                         transform.rotation.z = 0.0f;
