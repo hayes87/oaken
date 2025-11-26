@@ -12,6 +12,11 @@ namespace Systems {
         // Movement is relative to the camera's facing direction
         world.system<LocalTransform, CharacterController>("CharacterMovementSystem")
             .run([inputPtr, &world](flecs::iter& it) {
+                // Get generic input axes
+                glm::vec2 moveInput = inputPtr->GetMoveInput();
+                bool isSprinting = inputPtr->IsSprinting();
+                bool hasInput = glm::length(moveInput) > 0.01f;
+
                 // Get the camera yaw for movement direction
                 float cameraYaw = 0.0f;
                 world.query<const CameraFollowComponent, const CameraComponent>()
@@ -31,27 +36,14 @@ namespace Systems {
                         LocalTransform& transform = transforms[i];
                         CharacterController& controller = controllers[i];
 
-                        // Get input direction
-                        glm::vec2 inputDir(0.0f);
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_W)) inputDir.y += 1.0f;
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_S)) inputDir.y -= 1.0f;
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_A)) inputDir.x -= 1.0f;
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_D)) inputDir.x += 1.0f;
-
-                        bool isRunning = inputPtr->IsKeyDown(SDL_SCANCODE_LSHIFT);
-                        bool hasInput = glm::length(inputDir) > 0.01f;
-
                         // Update state
                         if (hasInput) {
-                            controller.state = isRunning ? CharacterState::Running : CharacterState::Walking;
+                            controller.state = isSprinting ? CharacterState::Running : CharacterState::Walking;
                         } else {
                             controller.state = CharacterState::Idle;
                         }
 
                         if (hasInput) {
-                            // Normalize input
-                            inputDir = glm::normalize(inputDir);
-
                             // Calculate movement direction relative to camera
                             float cameraYawRad = glm::radians(cameraYaw);
                             
@@ -59,13 +51,13 @@ namespace Systems {
                             glm::vec3 forward(sin(cameraYawRad), 0.0f, cos(cameraYawRad));
                             glm::vec3 right(cos(cameraYawRad), 0.0f, -sin(cameraYawRad));
 
-                            // Calculate world-space movement direction
-                            glm::vec3 moveDir = forward * inputDir.y + right * inputDir.x;
+                            // Calculate world-space movement direction from input axes
+                            glm::vec3 moveDir = forward * moveInput.y + right * moveInput.x;
                             moveDir = glm::normalize(moveDir);
 
                             // Calculate speed
                             float speed = controller.moveSpeed;
-                            if (isRunning) speed *= controller.runMultiplier;
+                            if (isSprinting) speed *= controller.runMultiplier;
 
                             // Apply velocity
                             controller.velocity = moveDir * speed;

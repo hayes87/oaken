@@ -20,29 +20,57 @@ namespace Platform {
         // Reset scroll delta (it's accumulated in ProcessEvent)
         m_ScrollDelta = 0.0f;
         
-        // Simple polling for actions to dispatch events
-        // In a real scenario, we might want to use SDL events directly for "pressed this frame" logic
-        // or keep track of previous state to detect edges.
+        // Update generic input axes from keyboard/mouse/gamepad
+        UpdateAxes();
+    }
+    
+    void Input::UpdateAxes() {
+        // Reset axes
+        m_Axes = InputAxes{};
         
-        // For now, let's just check our mapped actions and fire events if they are down
-        // NOTE: This will fire every frame the key is held. 
-        // Usually we want "JustPressed".
+        // Movement from keyboard (WASD)
+        if (IsKeyDown(SDL_SCANCODE_W)) m_Axes.move.y += 1.0f;
+        if (IsKeyDown(SDL_SCANCODE_S)) m_Axes.move.y -= 1.0f;
+        if (IsKeyDown(SDL_SCANCODE_A)) m_Axes.move.x -= 1.0f;
+        if (IsKeyDown(SDL_SCANCODE_D)) m_Axes.move.x += 1.0f;
         
-        // Let's implement a simple "JustPressed" check using previous state if we had it.
-        // But for now, let's iterate the action map and check keys.
+        // Normalize movement if using keyboard (digital input)
+        if (glm::length(m_Axes.move) > 1.0f) {
+            m_Axes.move = glm::normalize(m_Axes.move);
+        }
         
-        // To do "JustPressed" properly without keeping a full copy of keyboard state:
-        // We can use the SDL event loop in Engine.cpp to feed us events, OR
-        // we can keep a small set of "Active Actions" from last frame.
+        // Look from mouse delta
+        m_Axes.look.x = m_MouseDeltaX;
+        m_Axes.look.y = m_MouseDeltaY;
         
-        // For this milestone, let's stick to the user's request:
-        // "On key press, publish ActionEvent { "Jump"_hs }."
+        // Zoom from scroll wheel
+        m_Axes.zoom = m_ScrollDelta;
         
-        // We'll rely on the SDL event loop in Engine.cpp calling a function here, 
-        // OR we can peek at events here.
-        // The user said: "Listen to SDL events."
+        // Sprint from Left Shift
+        m_Axes.sprint = IsKeyDown(SDL_SCANCODE_LSHIFT);
         
-        // Let's add a ProcessEvent function that Engine.cpp calls.
+        // Jump from Space
+        m_Axes.jump = IsKeyDown(SDL_SCANCODE_SPACE);
+        
+        // TODO: Add gamepad support here
+        // SDL_Gamepad* gamepad = SDL_GetGamepad(...);
+        // if (gamepad) {
+        //     // Left stick for movement
+        //     float lx = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX) / 32767.0f;
+        //     float ly = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTY) / 32767.0f;
+        //     if (glm::length(glm::vec2(lx, ly)) > 0.1f) { // Dead zone
+        //         m_Axes.move = glm::vec2(lx, -ly);
+        //     }
+        //     
+        //     // Right stick for camera
+        //     float rx = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX) / 32767.0f;
+        //     float ry = SDL_GetGamepadAxis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY) / 32767.0f;
+        //     m_Axes.look += glm::vec2(rx, ry) * 10.0f; // Scale for gamepad
+        //     
+        //     // Triggers for zoom or sprint
+        //     m_Axes.sprint |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+        //     m_Axes.jump |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH);
+        // }
     }
     
     // New function to handle individual SDL events

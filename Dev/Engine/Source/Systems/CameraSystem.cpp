@@ -14,9 +14,9 @@ namespace Systems {
         // System for third-person orbit cameras (CameraFollowComponent)
         world.system<LocalTransform, CameraFollowComponent, const CameraComponent>("CameraFollowSystem")
             .run([inputPtr](flecs::iter& it) {
-                float mouseX, mouseY;
-                inputPtr->GetMouseDelta(mouseX, mouseY);
-                float scrollDelta = inputPtr->GetScrollDelta();
+                // Get generic input axes
+                glm::vec2 lookInput = inputPtr->GetLookInput();
+                float zoomInput = inputPtr->GetZoomInput();
 
                 while (it.next()) {
                     auto transforms = it.field<LocalTransform>(0);
@@ -29,13 +29,13 @@ namespace Systems {
                         CameraFollowComponent& follow = follows[i];
                         LocalTransform& transform = transforms[i];
 
-                        // Update yaw/pitch based on mouse input
-                        follow.yaw -= mouseX * follow.sensitivity;
-                        follow.pitch -= mouseY * follow.sensitivity;
+                        // Update yaw/pitch based on look input
+                        follow.yaw -= lookInput.x * follow.sensitivity;
+                        follow.pitch -= lookInput.y * follow.sensitivity;
                         follow.pitch = std::clamp(follow.pitch, follow.minPitch, follow.maxPitch);
 
-                        // Update distance based on scroll wheel
-                        follow.distance -= scrollDelta * follow.zoomSpeed;
+                        // Update distance based on zoom input
+                        follow.distance -= zoomInput * follow.zoomSpeed;
                         follow.distance = std::clamp(follow.distance, follow.minDistance, follow.maxDistance);
 
                         // Get target position
@@ -73,8 +73,9 @@ namespace Systems {
         world.system<LocalTransform, const CameraComponent>("CameraFreeFlightSystem")
             .without<CameraFollowComponent>()
             .run([inputPtr](flecs::iter& it) {
-                float mouseX, mouseY;
-                inputPtr->GetMouseDelta(mouseX, mouseY);
+                // Get generic input axes
+                glm::vec2 moveInput = inputPtr->GetMoveInput();
+                glm::vec2 lookInput = inputPtr->GetLookInput();
 
                 while (it.next()) {
                     auto transforms = it.field<LocalTransform>(0);
@@ -89,14 +90,14 @@ namespace Systems {
 
                         LocalTransform& transform = transforms[i];
 
-                        // Rotation (Mouse)
-                        transform.rotation.y -= mouseX * sensitivity;
-                        transform.rotation.x -= mouseY * sensitivity;
+                        // Rotation from look input
+                        transform.rotation.y -= -lookInput.x * sensitivity;
+                        transform.rotation.x -= -lookInput.y * sensitivity;
 
                         // Clamp pitch
                         transform.rotation.x = std::clamp(transform.rotation.x, -89.0f, 89.0f);
 
-                        // Movement
+                        // Movement vectors
                         glm::vec3 forward = glm::vec3(0, 0, -1);
                         glm::vec3 right = glm::vec3(1, 0, 0);
                         glm::vec3 up = glm::vec3(0, 1, 0);
@@ -106,10 +107,11 @@ namespace Systems {
                         forward = glm::vec3(rot * glm::vec4(forward, 0.0f));
                         right = glm::vec3(rot * glm::vec4(right, 0.0f));
 
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_W)) transform.position += forward * speed;
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_S)) transform.position -= forward * speed;
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_A)) transform.position -= right * speed;
-                        if (inputPtr->IsKeyDown(SDL_SCANCODE_D)) transform.position += right * speed;
+                        // Apply movement from input axes
+                        transform.position += -forward * moveInput.y * speed;
+                        transform.position += right * moveInput.x * speed;
+                        
+                        // Vertical movement (Q/E) - still use direct input for now
                         if (inputPtr->IsKeyDown(SDL_SCANCODE_E)) transform.position += up * speed;
                         if (inputPtr->IsKeyDown(SDL_SCANCODE_Q)) transform.position -= up * speed;
                     }
