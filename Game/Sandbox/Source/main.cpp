@@ -207,6 +207,16 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 0.0f,                 // targetYaw
                 CharacterState::Idle, // state
                 true                  // isGrounded
+            })
+            .set<CharacterPhysics>({
+                1.8f * 0.01f,         // height (scaled for character)
+                0.3f * 0.01f,         // radius (scaled for character)
+                70.0f,                // mass
+                45.0f,                // max slope angle
+                0.3f * 0.01f,         // max step height (scaled)
+                false,                // isOnGround (set by physics)
+                {0.0f, 1.0f, 0.0f},   // ground normal
+                nullptr               // characterVirtual (set by physics)
             });
          
         if (g_TestSkeleton && g_IdleAnimation) {
@@ -289,16 +299,30 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // ============================================
-    // CREATE TEST LEVEL GEOMETRY
+    // CREATE TEST LEVEL GEOMETRY WITH PHYSICS
     // ============================================
     
-    // Create ground plane
+    // Create ground plane with physics
     g_GroundMesh = CreateGroundPlane(engine.GetResourceManager(), 100.0f, 20);
     if (g_GroundMesh) {
         engine.GetContext().World->entity("Ground")
             .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
-            .set<MeshComponent>({g_GroundMesh});
-        LOG_INFO("Created Ground plane");
+            .set<MeshComponent>({g_GroundMesh})
+            .set<Collider>({
+                ColliderType::Box,
+                {50.0f, 0.5f, 50.0f},  // Half extents (100x1x100 box)
+                {0.0f, -0.5f, 0.0f},   // Offset down so top is at Y=0
+                0,                      // Layer
+                false                   // Not a trigger
+            })
+            .set<RigidBody>({
+                MotionType::Static,
+                1.0f, 0.5f, 0.0f, 0.05f, 0.05f,
+                {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f},
+                false, false, false,
+                0xFFFFFFFF
+            });
+        LOG_INFO("Created Ground plane with physics");
     }
     
     // Create procedural cube mesh for obstacles
@@ -340,15 +364,30 @@ GAME_EXPORT void GameInit(Engine& engine) {
         int obstacleIdx = 0;
         for (const auto& obs : obstacles) {
             std::string name = "Obstacle_" + std::to_string(obstacleIdx++);
+            float yPos = obs.pos.y + obs.scale.y * 0.5f - 1.0f;
             engine.GetContext().World->entity(name.c_str())
                 .set<LocalTransform>({ 
-                    {obs.pos.x, obs.pos.y + obs.scale.y * 0.5f - 1.0f, obs.pos.z},  // Offset Y so bottom is at ground
+                    {obs.pos.x, yPos, obs.pos.z},
                     {0.0f, obs.rotY, 0.0f}, 
                     obs.scale 
                 })
-                .set<MeshComponent>({g_CubeMesh});
+                .set<MeshComponent>({g_CubeMesh})
+                .set<Collider>({
+                    ColliderType::Box,
+                    {obs.scale.x * 0.5f, obs.scale.y * 0.5f, obs.scale.z * 0.5f},  // Half extents
+                    {0.0f, 0.0f, 0.0f},  // No offset (mesh is centered)
+                    0,
+                    false
+                })
+                .set<RigidBody>({
+                    MotionType::Static,
+                    1.0f, 0.5f, 0.0f, 0.05f, 0.05f,
+                    {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f},
+                    false, false, false,
+                    0xFFFFFFFF
+                });
         }
-        LOG_INFO("Created {} obstacle entities", obstacles.size());
+        LOG_INFO("Created {} obstacle entities with physics", obstacles.size());
     }
 
     // Create Directional Light (sun)

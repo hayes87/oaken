@@ -120,3 +120,63 @@ struct PointLight {
     float radius = 10.0f;           // Attenuation radius
     float falloff = 2.0f;           // Falloff exponent (2.0 = quadratic)
 };
+
+// ============================================
+// PHYSICS COMPONENTS
+// ============================================
+
+// Collider shape types
+enum class ColliderType {
+    Box,
+    Sphere,
+    Capsule,
+    Mesh        // For static geometry
+};
+
+// Motion types for rigid bodies
+enum class MotionType {
+    Static,     // Never moves (walls, floors)
+    Kinematic,  // Moved by code, not physics (moving platforms)
+    Dynamic     // Fully simulated by physics
+};
+
+// Collider component - defines the collision shape
+struct Collider {
+    ColliderType type = ColliderType::Box;
+    glm::vec3 size = {1.0f, 1.0f, 1.0f};    // Box half-extents, or (radius, height, 0) for capsule
+    glm::vec3 offset = {0.0f, 0.0f, 0.0f};  // Offset from entity origin
+    uint16_t layer = 0;                      // Collision layer (for filtering)
+    bool isTrigger = false;                  // If true, generates events but no physical response
+};
+
+// RigidBody component - physics simulation properties
+struct RigidBody {
+    MotionType motionType = MotionType::Dynamic;
+    float mass = 1.0f;                       // Mass in kg (ignored for static/kinematic)
+    float friction = 0.5f;                   // Surface friction
+    float restitution = 0.0f;                // Bounciness (0 = no bounce, 1 = full bounce)
+    float linearDamping = 0.05f;             // Air resistance for linear velocity
+    float angularDamping = 0.05f;            // Air resistance for angular velocity
+    glm::vec3 linearVelocity = {0.0f, 0.0f, 0.0f};
+    glm::vec3 angularVelocity = {0.0f, 0.0f, 0.0f};
+    bool lockRotationX = false;
+    bool lockRotationY = false;
+    bool lockRotationZ = false;
+    
+    // Runtime - Jolt body ID (set by PhysicsSystem)
+    uint32_t bodyId = 0xFFFFFFFF;            // Invalid ID by default
+};
+
+// Character physics component - uses Jolt's CharacterVirtual for responsive movement
+struct CharacterPhysics {
+    float height = 1.8f;                     // Character capsule height
+    float radius = 0.3f;                     // Character capsule radius
+    float mass = 70.0f;                      // Mass for push interactions
+    float maxSlopeAngle = 45.0f;             // Max walkable slope in degrees
+    float maxStepHeight = 0.3f;              // Max step height character can climb
+    bool isOnGround = false;                 // Set by physics system
+    glm::vec3 groundNormal = {0.0f, 1.0f, 0.0f};
+    
+    // Runtime - Jolt character pointer (set by PhysicsSystem)
+    void* characterVirtual = nullptr;
+};
