@@ -55,16 +55,17 @@
     - [ ] **Sync to CharacterState**: Auto-transition based on CharacterController state.
     - [ ] **Multiple Animation Clips**: Load and manage multiple animations per character.
 
-## Phase 5: Core Systems & Gameplay (Next Up)
+## Phase 5: Core Systems & Gameplay (In Progress)
 - [ ] **Multithreading Foundation**:
     - [ ] **Job System**: Implement a task scheduler for parallel execution (required for Jolt/AI).
     - [ ] **Thread Safety**: Ensure `ResourceManager` and `EventBus` are thread-safe.
     - [ ] **ECS Multithreading**: Configure Flecs worker threads and component locking.
-- [ ] **Physics Integration (Jolt)**:
-    - [ ] Initialize Jolt Physics system (utilizing the Job System).
-    - [ ] Create `RigidBody` and `Collider` components (Capsule for Character).
-    - [ ] Implement `PhysicsSystem::Step` to sync ECS Transforms <-> Jolt Bodies.
-    - [ ] Implement Character Virtual Controller (Jolt feature for responsive movement).
+- [x] **Physics Integration (Jolt)**:
+    - [x] Initialize Jolt Physics system (using single-threaded job system).
+    - [x] Create `RigidBody` and `Collider` components (Box, Sphere, Capsule, Mesh).
+    - [x] Implement `PhysicsSystem::Step` to sync ECS Transforms <-> Jolt Bodies.
+    - [x] Implement Character Virtual Controller (Jolt CharacterVirtual for responsive movement).
+    - [x] Add physics to test level (ground, obstacles, character).
 - [ ] **AI & Navigation**:
     - [ ] **Navigation Mesh**: Generate NavMesh from level geometry (Recast).
     - [ ] **Pathfinding**: Implement A* or Detour for path calculation.
