@@ -1,5 +1,6 @@
 #pragma once
 
+#include <flecs.h>
 #include <glm/glm.hpp>
 #include <string>
 #include <memory>
@@ -56,4 +57,21 @@ struct CameraComponent {
     float nearPlane = 0.1f;
     float farPlane = 100.0f;
     bool isPrimary = true;
+    bool isOrthographic = false;
+    float orthoSize = 10.0f; // Half-height in world units for ortho projection
+};
+
+// Third-person orbit camera that follows a target entity
+struct CameraFollowComponent {
+    flecs::entity target;       // Entity to follow
+    float distance = 5.0f;      // Distance from target
+    float minDistance = 2.0f;   // Minimum zoom distance
+    float maxDistance = 20.0f;  // Maximum zoom distance
+    float yaw = 0.0f;           // Horizontal rotation around target (degrees)
+    float pitch = 20.0f;        // Vertical rotation around target (degrees)
+    float minPitch = -80.0f;    // Minimum pitch angle
+    float maxPitch = 80.0f;     // Maximum pitch angle
+    glm::vec3 offset = {0.0f, 1.5f, 0.0f}; // Offset from target pivot (e.g., look at head not feet)
+    float sensitivity = 0.2f;   // Mouse sensitivity
+    float zoomSpeed = 1.0f;     // Scroll wheel zoom speed
 };

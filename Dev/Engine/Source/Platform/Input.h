@@ -25,6 +25,7 @@ namespace Platform {
         // Mouse Support
         void SetRelativeMouseMode(bool enabled);
         void GetMouseDelta(float& x, float& y);
+        float GetScrollDelta() const { return m_ScrollDelta; }
 
     private:
         Core::EventBus* m_EventBus = nullptr;
@@ -35,6 +36,7 @@ namespace Platform {
         std::unordered_map<uint32_t, SDL_Scancode> m_ActionMap; // Hash -> Scancode
         float m_MouseDeltaX = 0.0f;
         float m_MouseDeltaY = 0.0f;
+        float m_ScrollDelta = 0.0f;
     };
 
 }

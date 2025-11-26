@@ -17,6 +17,9 @@ namespace Platform {
         // Update mouse delta once per frame
         SDL_GetRelativeMouseState(&m_MouseDeltaX, &m_MouseDeltaY);
         
+        // Reset scroll delta (it's accumulated in ProcessEvent)
+        m_ScrollDelta = 0.0f;
+        
         // Simple polling for actions to dispatch events
         // In a real scenario, we might want to use SDL events directly for "pressed this frame" logic
         // or keep track of previous state to detect edges.
@@ -44,6 +47,11 @@ namespace Platform {
     
     // New function to handle individual SDL events
     void Input::ProcessEvent(const SDL_Event& event) {
+        // Handle scroll wheel
+        if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+            m_ScrollDelta += event.wheel.y;
+        }
+        
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
             // Find if this key is mapped to an action
             for (const auto& [hash, scancode] : m_ActionMap) {

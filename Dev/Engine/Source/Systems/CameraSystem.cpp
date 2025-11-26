@@ -2,6 +2,7 @@
 #include "../Components/Components.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <cmath>
 
 namespace Systems {
     CameraSystem::CameraSystem(flecs::world& world, Platform::Input& input) {
@@ -10,7 +11,67 @@ namespace Systems {
         // Enable mouse capture
         inputPtr->SetRelativeMouseMode(true);
 
-        world.system<LocalTransform, const CameraComponent>("CameraSystem")
+        // System for third-person orbit cameras (CameraFollowComponent)
+        world.system<LocalTransform, CameraFollowComponent, const CameraComponent>("CameraFollowSystem")
+            .run([inputPtr](flecs::iter& it) {
+                float mouseX, mouseY;
+                inputPtr->GetMouseDelta(mouseX, mouseY);
+                float scrollDelta = inputPtr->GetScrollDelta();
+
+                while (it.next()) {
+                    auto transforms = it.field<LocalTransform>(0);
+                    auto follows = it.field<CameraFollowComponent>(1);
+                    auto cameras = it.field<const CameraComponent>(2);
+
+                    for (auto i : it) {
+                        if (!cameras[i].isPrimary) continue;
+
+                        CameraFollowComponent& follow = follows[i];
+                        LocalTransform& transform = transforms[i];
+
+                        // Update yaw/pitch based on mouse input
+                        follow.yaw -= mouseX * follow.sensitivity;
+                        follow.pitch -= mouseY * follow.sensitivity;
+                        follow.pitch = std::clamp(follow.pitch, follow.minPitch, follow.maxPitch);
+
+                        // Update distance based on scroll wheel
+                        follow.distance -= scrollDelta * follow.zoomSpeed;
+                        follow.distance = std::clamp(follow.distance, follow.minDistance, follow.maxDistance);
+
+                        // Get target position
+                        glm::vec3 targetPos = follow.offset; // Default if no target
+                        if (follow.target.is_valid()) {
+                            // Lookup the target entity from the world
+                            flecs::entity targetEntity = it.world().entity(follow.target);
+                            if (targetEntity.has<LocalTransform>()) {
+                                const LocalTransform& targetTransform = targetEntity.get<LocalTransform>();
+                                targetPos = targetTransform.position + follow.offset;
+                            }
+                        }
+
+                        // Calculate camera position using spherical coordinates
+                        float pitchRad = glm::radians(follow.pitch);
+                        float yawRad = glm::radians(follow.yaw);
+
+                        glm::vec3 cameraOffset;
+                        cameraOffset.x = follow.distance * cos(pitchRad) * sin(yawRad);
+                        cameraOffset.y = follow.distance * sin(pitchRad);
+                        cameraOffset.z = follow.distance * cos(pitchRad) * cos(yawRad);
+
+                        transform.position = targetPos + cameraOffset;
+
+                        // Calculate rotation to look at target
+                        glm::vec3 direction = glm::normalize(targetPos - transform.position);
+                        transform.rotation.y = glm::degrees(atan2(-direction.x, -direction.z));
+                        transform.rotation.x = glm::degrees(asin(direction.y));
+                        transform.rotation.z = 0.0f;
+                    }
+                }
+            });
+
+        // System for free-fly cameras (no CameraFollowComponent)
+        world.system<LocalTransform, const CameraComponent>("CameraFreeFlightSystem")
+            .without<CameraFollowComponent>()
             .run([inputPtr](flecs::iter& it) {
                 float mouseX, mouseY;
                 inputPtr->GetMouseDelta(mouseX, mouseY);

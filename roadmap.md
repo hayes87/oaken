@@ -32,14 +32,14 @@
     - [x] **Import (Assimp)**: Implement `CookMesh` in AssetCooker using Assimp (glTF/FBX -> .oakmesh).
     - [x] Implement `Mesh` resource class and `Reload()` logic.
     - [x] Render static 3D meshes in `RenderSystem`.
-- [ ] **Skeletal Animation (ozz-animation)**:
-    - [ ] **Import**: Extract Skeleton and Animation Clips using Assimp/ozz-animation tools.
-    - [ ] **Runtime**: Integrate `ozz-animation` for playback and sampling.
-    - [ ] **Skinning**: Implement Vertex Shader skinning (GPU-based bone transforms).
-- [ ] **Camera System**:
-    - [ ] **Component**: Create `Camera` component (FOV, Near/Far, Perspective/Ortho).
-    - [ ] **System**: Implement `CameraSystem` to manage View/Projection matrices.
-    - [ ] **Controller**: Implement `CameraFollow` logic (Third-person orbit/chase).
+- [x] **Skeletal Animation (ozz-animation)**:
+    - [x] **Import**: Extract Skeleton and Animation Clips using Assimp/ozz-animation tools.
+    - [x] **Runtime**: Integrate `ozz-animation` for playback and sampling.
+    - [x] **Skinning**: Implement Vertex Shader skinning (GPU-based bone transforms).
+- [x] **Camera System**:
+    - [x] **Component**: Create `Camera` component (FOV, Near/Far, Perspective/Ortho).
+    - [x] **System**: Implement `CameraSystem` to manage View/Projection matrices.
+    - [x] **Controller**: Implement `CameraFollow` logic (Third-person orbit/chase).
 - [ ] **Character Controller**:
     - [ ] Implement `CharacterController` component (Velocity, State).
     - [ ] Map Input to Character Movement.

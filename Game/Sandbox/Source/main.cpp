@@ -78,37 +78,53 @@ GAME_EXPORT void GameInit(Engine& engine) {
     g_GamePlaySystem = std::make_unique<GamePlaySystem>(engine.GetContext());
     g_GamePlaySystem->Init();
 
-    // Create Camera if it doesn't exist
+    // Create test mesh entity first (so we can reference it for camera follow)
+    flecs::entity meshEntity;
+    if (engine.GetContext().World->count<MeshComponent>() == 0 && g_TestMesh) {
+        meshEntity = engine.GetContext().World->entity("TestMesh")
+            .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
+            .set<MeshComponent>({g_TestMesh});
+         
+        if (g_TestSkeleton) {
+            meshEntity.set<AnimatorComponent>({g_TestSkeleton, g_TestAnimation});
+            LOG_INFO("Added AnimatorComponent to TestMesh entity");
+        }
+        LOG_INFO("Created TestMesh entity with MeshComponent");
+    } else {
+        meshEntity = engine.GetContext().World->lookup("TestMesh");
+    }
+
+    // Create Camera with third-person follow
     if (engine.GetContext().World->count<CameraComponent>() == 0) {
-        engine.GetContext().World->entity("MainCamera")
+        auto cameraEntity = engine.GetContext().World->entity("MainCamera")
             .set<LocalTransform>({ {0.0f, 1.0f, 4.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
             .set<CameraComponent>({ 45.0f, 0.1f, 1000.0f, true });
-        LOG_INFO("Created MainCamera entity");
+        
+        // Add CameraFollowComponent to orbit around the character
+        if (meshEntity.is_valid()) {
+            cameraEntity.set<CameraFollowComponent>({
+                meshEntity,     // target
+                5.0f,           // distance
+                2.0f,           // minDistance
+                20.0f,          // maxDistance
+                0.0f,           // yaw
+                20.0f,          // pitch
+                -80.0f,         // minPitch
+                80.0f,          // maxPitch
+                {0.0f, 0.8f, 0.0f}, // offset (look at character center, scaled)
+                0.2f,           // sensitivity
+                1.0f            // zoomSpeed
+            });
+            LOG_INFO("Created MainCamera with third-person follow on TestMesh");
+        } else {
+            LOG_INFO("Created MainCamera entity (free-flight mode)");
+        }
     }
 
     // Create a test entity with AttributeSet if it doesn't exist
-    // For hot reload, we might want to avoid creating duplicates.
-    // Simple check:
     if (engine.GetContext().World->count<AttributeSet>() == 0) {
-        auto e = engine.GetContext().World->entity("Player")
+        engine.GetContext().World->entity("Player")
             .set<AttributeSet>({100.0f, 100.0f, 100.0f, 100.0f, 10.0f});
-            
-        // if (g_TestTexture) {
-        //     e.set<SpriteComponent>({g_TestTexture, {1,1,1,1}});
-        //     LOG_INFO("Added SpriteComponent to Player entity");
-        // }
-
-        if (g_TestMesh) {
-            auto meshEntity = engine.GetContext().World->entity("TestMesh")
-                .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
-                .set<MeshComponent>({g_TestMesh});
-             
-            if (g_TestSkeleton) {
-                meshEntity.set<AnimatorComponent>({g_TestSkeleton, g_TestAnimation});
-                LOG_INFO("Added AnimatorComponent to TestMesh entity");
-            }
-            LOG_INFO("Created TestMesh entity with MeshComponent");
-        }
 
         // Add a static cube for testing
         std::string cubePath = "../Cooked/Assets/Models/cube.oakmesh";
