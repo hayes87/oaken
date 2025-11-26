@@ -31,7 +31,7 @@ namespace Systems {
 
                         // Update yaw/pitch based on look input
                         follow.yaw -= lookInput.x * follow.sensitivity;
-                        follow.pitch -= lookInput.y * follow.sensitivity;
+                        follow.pitch += lookInput.y * follow.sensitivity;  // Inverted for natural feel
                         follow.pitch = std::clamp(follow.pitch, follow.minPitch, follow.maxPitch);
 
                         // Update distance based on zoom input

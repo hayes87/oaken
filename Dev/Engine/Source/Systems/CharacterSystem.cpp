@@ -47,12 +47,14 @@ namespace Systems {
                             // Calculate movement direction relative to camera
                             float cameraYawRad = glm::radians(cameraYaw);
                             
-                            // Forward is the direction the camera is looking (negative Z in camera space)
-                            glm::vec3 forward(sin(cameraYawRad), 0.0f, cos(cameraYawRad));
-                            glm::vec3 right(cos(cameraYawRad), 0.0f, -sin(cameraYawRad));
+                            // Forward is AWAY from the camera (into the screen)
+                            // Camera is behind the character, so we negate the direction
+                            glm::vec3 forward(-sin(cameraYawRad), 0.0f, -cos(cameraYawRad));
+                            glm::vec3 right(-cos(cameraYawRad), 0.0f, sin(cameraYawRad));
 
                             // Calculate world-space movement direction from input axes
-                            glm::vec3 moveDir = forward * moveInput.y + right * moveInput.x;
+                            // Negate X to fix left/right inversion
+                            glm::vec3 moveDir = forward * moveInput.y - right * moveInput.x;
                             moveDir = glm::normalize(moveDir);
 
                             // Calculate speed
