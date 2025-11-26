@@ -196,14 +196,14 @@ GAME_EXPORT void GameInit(Engine& engine) {
     // Create test mesh entity first (so we can reference it for camera follow)
     flecs::entity meshEntity;
     if (engine.GetContext().World->count<MeshComponent>() == 0 && g_TestMesh) {
-        // Character spawns at Y=0 (ground collision is at Y=0)
-        // The visual mesh is scaled to 0.01, physics capsule is world scale (1.8m tall)
+        // Character mesh - AssetCooker normalizes FBX to meters, so use scale 1.0
+        // Physics dimensions are in meters
         meshEntity = engine.GetContext().World->entity("TestMesh")
-            .set<LocalTransform>({ {0.0f, 0.9f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })  // Spawn capsule center at half-height
+            .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
             .set<MeshComponent>({g_TestMesh})
             .set<CharacterController>({ 
                 {0.0f, 0.0f, 0.0f},  // velocity
-                3.0f,                 // moveSpeed
+                3.0f,                 // moveSpeed (meters/sec)
                 2.0f,                 // runMultiplier
                 10.0f,                // turnSpeed
                 0.0f,                 // targetYaw
@@ -211,11 +211,11 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 true                  // isGrounded
             })
             .set<CharacterPhysics>({
-                1.8f,                 // height (world scale - 1.8 meters tall)
-                0.3f,                 // radius (world scale - 0.3 meters)
-                70.0f,                // mass
-                45.0f,                // max slope angle
-                0.35f,                // max step height (35cm - can step over small objects)
+                1.8f,                 // height (meters - average human)
+                0.3f,                 // radius (meters)
+                70.0f,                // mass (kg)
+                45.0f,                // max slope angle (degrees)
+                0.35f,                // max step height (meters - ~35cm)
                 false,                // isOnGround (set by physics)
                 {0.0f, 1.0f, 0.0f},   // ground normal
                 nullptr               // characterVirtual (set by physics)
