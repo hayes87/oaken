@@ -43,6 +43,7 @@
 - [x] **Character Controller**:
     - [x] Implement `CharacterController` component (Velocity, State).
     - [x] Map Input to Character Movement.
+    - [x] **Generic Input Axes**: Abstract input for future gamepad support.
 
 ## Phase 5: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:
