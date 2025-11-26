@@ -74,12 +74,18 @@ namespace Platform {
             return;
         }
 
-        // Ensure depth texture matches window size
-        if (!m_DepthTexture) {
+        // Skip if window is minimized (0x0)
+        if (w == 0 || h == 0) {
+            m_SwapchainTexture = nullptr;
+            return;
+        }
+
+        // Recreate depth texture if size changed or doesn't exist
+        if (!m_DepthTexture || w != m_DepthWidth || h != m_DepthHeight) {
             CreateDepthTexture(w, h);
-        } 
-        // Note: We should also resize if w/h changed, but SDL_GPUTexture doesn't expose size easily.
-        // For now, assume constant size or handle resize event elsewhere.
+            m_DepthWidth = w;
+            m_DepthHeight = h;
+        }
     }
 
     bool RenderDevice::BeginRenderPass() {

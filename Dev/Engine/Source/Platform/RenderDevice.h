@@ -34,6 +34,8 @@ namespace Platform {
         SDL_GPURenderPass* m_RenderPass = nullptr;
         SDL_GPUTexture* m_SwapchainTexture = nullptr;
         SDL_GPUTexture* m_DepthTexture = nullptr;
+        uint32_t m_DepthWidth = 0;
+        uint32_t m_DepthHeight = 0;
     };
 
 }
