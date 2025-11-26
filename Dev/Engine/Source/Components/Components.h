@@ -10,6 +10,7 @@
 #include <ozz/animation/runtime/sampling_job.h>
 #include "../Resources/Skeleton.h"
 #include "../Resources/Animation.h"
+#include "../Animation/AnimGraph.h"
 
 namespace Resources { 
     class Texture; 
@@ -38,14 +39,20 @@ struct MeshComponent {
 
 struct AnimatorComponent {
     std::shared_ptr<Resources::Skeleton> skeleton;
-    std::shared_ptr<Resources::Animation> animation;
+    std::shared_ptr<Resources::Animation> animation;  // Legacy: single animation
     float time = 0.0f;
     bool loop = true;
     
+    // AnimGraph support (optional - if set, overrides single animation)
+    std::shared_ptr<Animation::AnimGraph> animGraph;
+    Animation::AnimGraphInstance graphInstance;
+    
     // Runtime buffers
     ozz::vector<ozz::math::SoaTransform> locals;
+    ozz::vector<ozz::math::SoaTransform> blendLocals;  // For blending
     ozz::vector<ozz::math::Float4x4> models; // Skinning matrices
     std::unique_ptr<ozz::animation::SamplingJob::Context> context;
+    std::unique_ptr<ozz::animation::SamplingJob::Context> blendContext;  // For second animation during blend
 };
 
 struct ScriptComponent {

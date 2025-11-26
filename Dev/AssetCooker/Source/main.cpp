@@ -235,9 +235,12 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
 
     Assimp::Importer importer;
     
-    // aiProcess_OptimizeGraph collapses Assimp's intermediate $AssimpFbx$ nodes
+    // Disable FBX pivot preservation - bakes pre/post rotations into bone transforms
+    // This creates cleaner skeletons without $AssimpFbx$ intermediate nodes
+    importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
+    
     const aiScene* scene = importer.ReadFile(input.string(), 
-        aiProcess_PopulateArmatureData | aiProcess_OptimizeGraph);
+        aiProcess_PopulateArmatureData);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -254,6 +257,15 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
     if (!skeleton) {
         std::cerr << "[Cooker] Failed to build skeleton" << std::endl;
         return false;
+    }
+    
+    // Print joint names for debugging
+    std::cout << "[Cooker] Skeleton has " << skeleton->num_joints() << " joints:" << std::endl;
+    for (int i = 0; i < std::min(20, skeleton->num_joints()); ++i) {
+        std::cout << "  [" << i << "] " << skeleton->joint_names()[i] << std::endl;
+    }
+    if (skeleton->num_joints() > 20) {
+        std::cout << "  ... and " << (skeleton->num_joints() - 20) << " more" << std::endl;
     }
 
     fs::path tempOutput = output;
@@ -277,14 +289,17 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
     return true;
 }
 
-bool CookAnimation(const fs::path& input, const fs::path& output) {
+bool CookAnimation(const fs::path& input, const fs::path& output, const fs::path& refSkeletonPath = "") {
     std::cout << "[Cooker] Processing Animation: " << input << " -> " << output << std::endl;
 
     Assimp::Importer importer;
     
-    // aiProcess_OptimizeGraph collapses Assimp's intermediate $AssimpFbx$ nodes
+    // Disable FBX pivot preservation - bakes pre/post rotations into bone transforms
+    // This creates cleaner skeletons without $AssimpFbx$ intermediate nodes
+    importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
+    
     const aiScene* scene = importer.ReadFile(input.string(), 
-        aiProcess_PopulateArmatureData | aiProcess_OptimizeGraph);
+        aiProcess_PopulateArmatureData);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -301,13 +316,30 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
     ozz::animation::offline::RawAnimation raw_animation;
     raw_animation.duration = (float)(anim->mDuration / anim->mTicksPerSecond);
     
-    // Re-extract skeleton to get joint order
-    ozz::animation::offline::RawSkeleton raw_skeleton;
-    raw_skeleton.roots.resize(1);
-    RecurseSkeleton(scene->mRootNode, raw_skeleton.roots[0]);
+    ozz::unique_ptr<ozz::animation::Skeleton> skeleton;
     
-    ozz::animation::offline::SkeletonBuilder builder;
-    ozz::unique_ptr<ozz::animation::Skeleton> skeleton = builder(raw_skeleton);
+    // Try to load reference skeleton if provided
+    if (!refSkeletonPath.empty() && fs::exists(refSkeletonPath)) {
+        std::cout << "[Cooker] Using reference skeleton: " << refSkeletonPath << std::endl;
+        ozz::io::File skelFile(refSkeletonPath.string().c_str(), "rb");
+        if (skelFile.opened()) {
+            ozz::io::IArchive archive(&skelFile);
+            skeleton = ozz::make_unique<ozz::animation::Skeleton>();
+            archive >> *skeleton;
+            std::cout << "[Cooker] Loaded reference skeleton with " << skeleton->num_joints() << " joints" << std::endl;
+        }
+    }
+    
+    // Fall back to extracting skeleton from animation file
+    if (!skeleton) {
+        std::cout << "[Cooker] Extracting skeleton from animation file" << std::endl;
+        ozz::animation::offline::RawSkeleton raw_skeleton;
+        raw_skeleton.roots.resize(1);
+        RecurseSkeleton(scene->mRootNode, raw_skeleton.roots[0]);
+        
+        ozz::animation::offline::SkeletonBuilder builder;
+        skeleton = builder(raw_skeleton);
+    }
     
     if (!skeleton) return false;
     
@@ -320,14 +352,35 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
     }
     
     int channelsMatched = 0;
+    int channelsMissed = 0;
+    
+    // First, list all animation channels
+    std::cout << "[Cooker] Animation has " << anim->mNumChannels << " channels:" << std::endl;
+    for (unsigned int i = 0; i < std::min(20u, anim->mNumChannels); ++i) {
+        std::cout << "  [" << i << "] " << anim->mChannels[i]->mNodeName.C_Str() << std::endl;
+    }
+    if (anim->mNumChannels > 20) {
+        std::cout << "  ... and " << (anim->mNumChannels - 20) << " more" << std::endl;
+    }
+    
     for (unsigned int i = 0; i < anim->mNumChannels; ++i) {
         const aiNodeAnim* channel = anim->mChannels[i];
         std::string name = channel->mNodeName.C_Str();
         
-        if (joint_map.find(name) == joint_map.end()) continue;
-        channelsMatched++;
+        if (joint_map.find(name) == joint_map.end()) {
+            if (channelsMissed < 10) {
+                std::cout << "[Cooker] Channel not found in skeleton: '" << name << "'" << std::endl;
+            }
+            channelsMissed++;
+            continue;
+        }
         
         int joint_index = joint_map[name];
+        if (channelsMatched < 5) {
+            std::cout << "[Cooker] Matched channel '" << name << "' -> joint " << joint_index << std::endl;
+        }
+        channelsMatched++;
+        
         ozz::animation::offline::RawAnimation::JointTrack& track = raw_animation.tracks[joint_index];
         
         // Position keys - time in seconds (0 to duration)
@@ -419,6 +472,11 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
             tracksInitialized++;
         }
     }
+    
+    std::cout << "[Cooker] Animation channels: " << anim->mNumChannels 
+              << ", matched: " << channelsMatched 
+              << ", missed: " << channelsMissed 
+              << ", rest-pose filled: " << tracksInitialized << std::endl;
     
     // Validate before building
     if (!raw_animation.Validate()) {
@@ -578,10 +636,13 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
 
     Assimp::Importer importer;
     
-    // aiProcess_OptimizeGraph collapses Assimp's intermediate $AssimpFbx$ nodes
+    // Disable FBX pivot preservation - bakes pre/post rotations into bone transforms
+    // This creates cleaner skeletons without $AssimpFbx$ intermediate nodes
+    importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
+    
     const aiScene* scene = importer.ReadFile(input.string(), 
         aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_LimitBoneWeights | 
-        aiProcess_PopulateArmatureData | aiProcess_OptimizeGraph);
+        aiProcess_PopulateArmatureData);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -987,7 +1048,9 @@ int main(int argc, char** argv) {
             } else if (type == "SKELETON") {
                 success = CookSkeleton(input, output);
             } else if (type == "ANIMATION") {
-                success = CookAnimation(input, output);
+                // Optional 5th argument is reference skeleton
+                std::string refSkeleton = (argc >= 6) ? argv[5] : "";
+                success = CookAnimation(input, output, refSkeleton);
             }
             return success ? 0 : 1;
         }

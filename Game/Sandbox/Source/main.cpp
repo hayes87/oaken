@@ -3,6 +3,7 @@
 #include "GameComponents.h"
 #include "Core/Log.h"
 #include "Components/Components.h"
+#include "Animation/AnimGraph.h"
 #include "Resources/Texture.h"
 #include "Resources/Mesh.h"
 #include "Resources/Skeleton.h"
@@ -16,7 +17,8 @@ std::unique_ptr<GamePlaySystem> g_GamePlaySystem;
 std::shared_ptr<Resources::Texture> g_TestTexture;
 std::shared_ptr<Resources::Mesh> g_TestMesh;
 std::shared_ptr<Resources::Skeleton> g_TestSkeleton;
-std::shared_ptr<Resources::Animation> g_TestAnimation;
+std::shared_ptr<Resources::Animation> g_IdleAnimation;
+std::shared_ptr<Resources::Animation> g_RunAnimation;
 
 GAME_EXPORT void GameInit(Engine& engine) {
     LOG_INFO("GameInit: Initializing Sandbox Game Module");
@@ -63,14 +65,25 @@ GAME_EXPORT void GameInit(Engine& engine) {
         }
     }
 
-    // Load Test Animation
-    std::string animPath = "../Cooked/Assets/Models/Joli.oakanim";
-    if (std::filesystem::exists(animPath)) {
-        g_TestAnimation = engine.GetResourceManager().LoadAnimation(animPath);
-        if (g_TestAnimation) {
-            LOG_INFO("Successfully loaded test animation: {}", animPath);
+    // Load Idle Animation
+    std::string idleAnimPath = "../Cooked/Assets/Models/Joli.oakanim";
+    if (std::filesystem::exists(idleAnimPath)) {
+        g_IdleAnimation = engine.GetResourceManager().LoadAnimation(idleAnimPath);
+        if (g_IdleAnimation) {
+            LOG_INFO("Successfully loaded idle animation: {}", idleAnimPath);
         } else {
-            LOG_ERROR("Failed to load animation: {}", animPath);
+            LOG_ERROR("Failed to load animation: {}", idleAnimPath);
+        }
+    }
+
+    // Load Run Animation
+    std::string runAnimPath = "../Cooked/Assets/Models/Joli_Run.oakanim";
+    if (std::filesystem::exists(runAnimPath)) {
+        g_RunAnimation = engine.GetResourceManager().LoadAnimation(runAnimPath);
+        if (g_RunAnimation) {
+            LOG_INFO("Successfully loaded run animation: {}", runAnimPath);
+        } else {
+            LOG_ERROR("Failed to load run animation: {}", runAnimPath);
         }
     }
 
@@ -94,9 +107,50 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 true                  // isGrounded
             });
          
-        if (g_TestSkeleton) {
-            meshEntity.set<AnimatorComponent>({g_TestSkeleton, g_TestAnimation});
-            LOG_INFO("Added AnimatorComponent to TestMesh entity");
+        if (g_TestSkeleton && g_IdleAnimation) {
+            // Create AnimGraph for character
+            auto animGraph = std::make_shared<Animation::AnimGraph>();
+            
+            // Add states with proper animations
+            animGraph->AddState("Idle", g_IdleAnimation, 1.0f, true);
+            animGraph->AddState("Walk", g_RunAnimation ? g_RunAnimation : g_IdleAnimation, 0.7f, true);  // Run anim at slower speed for walk
+            animGraph->AddState("Run", g_RunAnimation ? g_RunAnimation : g_IdleAnimation, 1.0f, true);   // Run anim at full speed
+            animGraph->SetDefaultState("Idle");
+            
+            // Add parameters
+            animGraph->AddParameterBool("IsMoving", false);
+            animGraph->AddParameterBool("IsRunning", false);
+            animGraph->AddParameter("Speed", Animation::AnimParameter::Type::Float, 0.0f);
+            
+            // Add transitions
+            // Idle -> Walk (when moving)
+            animGraph->AddTransition("Idle", "Walk", 0.2f);
+            animGraph->AddTransitionConditionBool("Idle", "Walk", "IsMoving", true);
+            
+            // Walk -> Idle (when stopped)
+            animGraph->AddTransition("Walk", "Idle", 0.2f);
+            animGraph->AddTransitionConditionBool("Walk", "Idle", "IsMoving", false);
+            
+            // Walk -> Run (when running)
+            animGraph->AddTransition("Walk", "Run", 0.15f);
+            animGraph->AddTransitionConditionBool("Walk", "Run", "IsRunning", true);
+            
+            // Run -> Walk (when not running)
+            animGraph->AddTransition("Run", "Walk", 0.2f);
+            animGraph->AddTransitionConditionBool("Run", "Walk", "IsRunning", false);
+            
+            // Run -> Idle (direct stop)
+            animGraph->AddTransition("Run", "Idle", 0.3f);
+            animGraph->AddTransitionConditionBool("Run", "Idle", "IsMoving", false);
+            
+            // Create animator with AnimGraph
+            AnimatorComponent animator;
+            animator.skeleton = g_TestSkeleton;
+            animator.animGraph = animGraph;
+            animator.graphInstance.Init(animGraph.get());
+            
+            meshEntity.set<AnimatorComponent>(std::move(animator));
+            LOG_INFO("Added AnimatorComponent with AnimGraph to TestMesh entity");
         }
         LOG_INFO("Created TestMesh entity with MeshComponent and CharacterController");
     } else {

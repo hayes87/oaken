@@ -48,6 +48,12 @@
     - [x] Add `DirectionalLight` and `PointLight` components.
     - [x] Implement Blinn-Phong shading in Mesh shader.
     - [x] Pass light uniforms to shader.
+- [ ] **Animation Graph (AnimGraph)**:
+    - [ ] **Animation State Machine**: States with entry/exit transitions.
+    - [ ] **Blend Nodes**: CrossFade, Additive, Layered blending.
+    - [ ] **Parameters**: Float/Bool/Trigger parameters to drive transitions.
+    - [ ] **Sync to CharacterState**: Auto-transition based on CharacterController state.
+    - [ ] **Multiple Animation Clips**: Load and manage multiple animations per character.
 
 ## Phase 5: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:

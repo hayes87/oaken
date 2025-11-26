@@ -35,6 +35,8 @@ add_library(OakenEngine SHARED
     Source/Scene/SceneManager.cpp
     Source/Scene/SceneSerializer.h
     Source/Scene/SceneSerializer.cpp
+    Source/Animation/AnimGraph.h
+    Source/Animation/AnimGraph.cpp
     Source/Systems/AbilitySystem.h
     Source/Systems/AbilitySystem.cpp
     Source/Systems/RenderSystem.h

@@ -96,6 +96,18 @@ namespace Systems {
                             while (transform.rotation.y > 180.0f) transform.rotation.y -= 360.0f;
                             while (transform.rotation.y < -180.0f) transform.rotation.y += 360.0f;
                         }
+                        
+                        // Update AnimGraph parameters if entity has an animator
+                        flecs::entity entity = it.entity(i);
+                        if (entity.has<AnimatorComponent>()) {
+                            AnimatorComponent& animator = entity.ensure<AnimatorComponent>();
+                            if (animator.animGraph) {
+                                float speed = glm::length(controller.velocity);
+                                animator.graphInstance.SetBool("IsMoving", hasInput);
+                                animator.graphInstance.SetBool("IsRunning", isSprinting && hasInput);
+                                animator.graphInstance.SetFloat("Speed", speed);
+                            }
+                        }
                     }
                 }
             });
