@@ -13,7 +13,7 @@ New-Item -ItemType Directory -Force -Path "$CookedDir/Shaders" | Out-Null
 
 # Compile Shaders
 Write-Host "Compiling Shaders..."
-$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag")
+$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "Line.vert", "Line.frag")
 foreach ($Shader in $Shaders) {
     $ShaderInput = "$EngineSource/Shaders/$Shader"
     $Output = "$EngineSource/Shaders/$Shader.spv"
@@ -32,6 +32,11 @@ if (Test-Path $Cooker) {
     # Cook animation from test_anim.fbx as test.oakanim since test.fbx has no animation
     & $Cooker COOK ANIMATION "$RawAssets/Models/test_anim.fbx" "$CookedDir/Models/test.oakanim"
     & $Cooker COOK MESH "$RawAssets/Models/cube.obj" "$CookedDir/Models/cube.oakmesh"
+
+    # Cook Joli
+    & $Cooker COOK MESH "$RawAssets/Models/Joli.fbx" "$CookedDir/Models/Joli.oakmesh"
+    & $Cooker COOK SKELETON "$RawAssets/Models/Joli.fbx" "$CookedDir/Models/Joli.oakskel"
+    & $Cooker COOK ANIMATION "$RawAssets/Models/Joli.fbx" "$CookedDir/Models/Joli.oakanim"
 } else {
     Write-Error "AssetCooker not found at $Cooker"
 }

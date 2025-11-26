@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <set>
 #include <sstream>
 #include <filesystem>
 #include <thread>
@@ -49,7 +50,8 @@ struct OakMeshHeader {
     char signature[4] = {'O', 'A', 'K', 'M'};
     uint32_t vertexCount = 0;
     uint32_t indexCount = 0;
-    uint32_t boneCount = 0;
+    uint32_t boneCount = 0;        // Number of USED bones (compact count)
+    uint32_t jointRemapCount = 0;  // Same as boneCount - for joint_remaps array
 };
 
 struct Vertex {
@@ -57,7 +59,7 @@ struct Vertex {
     glm::vec3 normal;
     glm::vec2 uv;
     glm::vec4 weights;
-    glm::uvec4 joints;
+    glm::vec4 joints;  // Joint indices stored as floats for GPU compatibility
 };
 
 void RecurseSkeleton(const aiNode* node, ozz::animation::offline::RawSkeleton::Joint& joint) {
@@ -75,7 +77,7 @@ void RecurseSkeleton(const aiNode* node, ozz::animation::offline::RawSkeleton::J
     if (ozz::math::ToAffine(ozzMat, &transform)) {
         joint.transform = transform;
     } else {
-        std::cerr << "[Cooker] Warning: Failed to decompose transform for node '" << joint.name << "', using Assimp decomposition." << std::endl;
+        std::cerr << "[Cooker] Warning: Failed to decompose transform for node '" << joint.name << "'" << std::endl;
         aiVector3D scaling, position;
         aiQuaternion rotation;
         node->mTransformation.Decompose(scaling, rotation, position);
@@ -85,10 +87,8 @@ void RecurseSkeleton(const aiNode* node, ozz::animation::offline::RawSkeleton::J
         joint.transform.scale = ozz::math::Float3(scaling.x, scaling.y, scaling.z);
     }
     
-    // Debug: Check for suspicious scales
+    // Fix near-zero scales
     if (std::abs(joint.transform.scale.x) < 1e-4f || std::abs(joint.transform.scale.y) < 1e-4f || std::abs(joint.transform.scale.z) < 1e-4f) {
-        std::cout << "[Cooker] Warning: Node '" << joint.name << "' has near-zero scale: " 
-                  << joint.transform.scale.x << ", " << joint.transform.scale.y << ", " << joint.transform.scale.z << " -> Forcing to 1.0" << std::endl;
         joint.transform.scale = ozz::math::Float3(1.0f, 1.0f, 1.0f);
     }
 
@@ -150,37 +150,36 @@ void RecurseMesh(const aiNode* node, const glm::mat4& parentTransform, const aiS
             }
             
             vertex.weights = {0.0f, 0.0f, 0.0f, 0.0f};
-            vertex.joints = {0, 0, 0, 0};
+            vertex.joints = {0.0f, 0.0f, 0.0f, 0.0f};
 
             vertices.push_back(vertex);
         }
 
         if (mesh->HasBones()) {
             std::vector<int> boneCounts(mesh->mNumVertices, 0);
+            std::set<int> usedJointIndices; // Track which joints are actually used
             
             for (unsigned int b = 0; b < mesh->mNumBones; b++) {
                 aiBone* bone = mesh->mBones[b];
                 std::string boneName = bone->mName.C_Str();
                 
                 if (joint_map.find(boneName) == joint_map.end()) {
+                    std::cout << "[Cooker] WARNING: Bone '" << boneName << "' not found in skeleton joint_map!" << std::endl;
                     continue;
                 }
                 int jointIndex = joint_map.at(boneName);
                 matchedBones++;
+                usedJointIndices.insert(jointIndex);
                 
-                // Calculate IBM from Ozz Bind Pose
-                // IBM = Inverse(BoneGlobal) * MeshGlobal
-                glm::mat4 boneGlobal(1.0f);
-                if (jointIndex < bindPose.size()) {
-                    const ozz::math::Float4x4& ozzMat = bindPose[jointIndex];
-                    float* ptr = glm::value_ptr(boneGlobal);
-                    ozz::math::StorePtrU(ozzMat.cols[0], ptr + 0);
-                    ozz::math::StorePtrU(ozzMat.cols[1], ptr + 4);
-                    ozz::math::StorePtrU(ozzMat.cols[2], ptr + 8);
-                    ozz::math::StorePtrU(ozzMat.cols[3], ptr + 12);
-                }
-                
-                glm::mat4 ibm = glm::inverse(boneGlobal) * globalTransform;
+                // Use Assimp's offset matrix directly - this is the inverse bind matrix
+                // It transforms from mesh space to bone space at bind pose
+                const aiMatrix4x4& m = bone->mOffsetMatrix;
+                glm::mat4 ibm;
+                // Transpose for GLM (Column-Major)
+                ibm[0][0] = m.a1; ibm[0][1] = m.b1; ibm[0][2] = m.c1; ibm[0][3] = m.d1;
+                ibm[1][0] = m.a2; ibm[1][1] = m.b2; ibm[1][2] = m.c2; ibm[1][3] = m.d2;
+                ibm[2][0] = m.a3; ibm[2][1] = m.b3; ibm[2][2] = m.c3; ibm[2][3] = m.d3;
+                ibm[3][0] = m.a4; ibm[3][1] = m.b4; ibm[3][2] = m.c4; ibm[3][3] = m.d4;
                 
                 if (jointIndex < inverseBindMatrices.size()) {
                     inverseBindMatrices[jointIndex] = ibm;
@@ -193,11 +192,14 @@ void RecurseMesh(const aiNode* node, const glm::mat4& parentTransform, const aiS
                     
                     if (boneCounts[vertexId] < 4) {
                         vertices[currentMeshVertexOffset + vertexId].weights[boneCounts[vertexId]] = weightVal;
-                        vertices[currentMeshVertexOffset + vertexId].joints[boneCounts[vertexId]] = jointIndex;
+                        vertices[currentMeshVertexOffset + vertexId].joints[boneCounts[vertexId]] = static_cast<float>(jointIndex);
                         boneCounts[vertexId]++;
                     }
                 }
             }
+            
+            // Track first used joint for fallback
+            int firstUsedJoint = usedJointIndices.empty() ? 0 : *usedJointIndices.begin();
             
             // Normalize weights
             for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
@@ -206,11 +208,9 @@ void RecurseMesh(const aiNode* node, const glm::mat4& parentTransform, const aiS
                 if (total > 0.0f) {
                     w /= total;
                 } else {
-                    // Unweighted vertex! This will collapse to origin.
-                    // Assign to first bone (usually root) with weight 1.0
-                    // std::cout << "[Cooker] Warning: Unweighted vertex " << v << " in mesh " << node->mName.C_Str() << ". Assigning to bone 0." << std::endl;
+                    // Unweighted vertex! Assign to the first USED joint (one that has a valid IBM)
                     w = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-                    vertices[currentMeshVertexOffset + v].joints = glm::uvec4(0, 0, 0, 0);
+                    vertices[currentMeshVertexOffset + v].joints = glm::vec4(static_cast<float>(firstUsedJoint), 0.0f, 0.0f, 0.0f);
                 }
             }
         }
@@ -235,8 +235,9 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
 
     Assimp::Importer importer;
     
-    // Preserve hierarchy is important for skeleton
-    const aiScene* scene = importer.ReadFile(input.string(), aiProcess_GlobalScale | aiProcess_PopulateArmatureData);
+    // aiProcess_OptimizeGraph collapses Assimp's intermediate $AssimpFbx$ nodes
+    const aiScene* scene = importer.ReadFile(input.string(), 
+        aiProcess_PopulateArmatureData | aiProcess_OptimizeGraph);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -281,7 +282,9 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
 
     Assimp::Importer importer;
     
-    const aiScene* scene = importer.ReadFile(input.string(), aiProcess_GlobalScale | aiProcess_PopulateArmatureData);
+    // aiProcess_OptimizeGraph collapses Assimp's intermediate $AssimpFbx$ nodes
+    const aiScene* scene = importer.ReadFile(input.string(), 
+        aiProcess_PopulateArmatureData | aiProcess_OptimizeGraph);
 
     if (!scene || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -289,7 +292,6 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
     }
 
     if (!scene->HasAnimations()) {
-        std::cout << "[Cooker] No animations found in source." << std::endl;
         return true; // Not an error, just nothing to do
     }
 
@@ -297,7 +299,7 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
     const aiAnimation* anim = scene->mAnimations[0];
     
     ozz::animation::offline::RawAnimation raw_animation;
-    raw_animation.duration = (float)anim->mDuration / (float)anim->mTicksPerSecond;
+    raw_animation.duration = (float)(anim->mDuration / anim->mTicksPerSecond);
     
     // Re-extract skeleton to get joint order
     ozz::animation::offline::RawSkeleton raw_skeleton;
@@ -317,20 +319,22 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
         joint_map[skeleton->joint_names()[i]] = i;
     }
     
+    int channelsMatched = 0;
     for (unsigned int i = 0; i < anim->mNumChannels; ++i) {
         const aiNodeAnim* channel = anim->mChannels[i];
         std::string name = channel->mNodeName.C_Str();
         
         if (joint_map.find(name) == joint_map.end()) continue;
+        channelsMatched++;
         
         int joint_index = joint_map[name];
         ozz::animation::offline::RawAnimation::JointTrack& track = raw_animation.tracks[joint_index];
         
-        // Position keys
+        // Position keys - time in seconds (0 to duration)
         for (unsigned int k = 0; k < channel->mNumPositionKeys; ++k) {
             const aiVectorKey& key = channel->mPositionKeys[k];
             ozz::animation::offline::RawAnimation::TranslationKey out_key;
-            out_key.time = (float)key.mTime / (float)anim->mTicksPerSecond;
+            out_key.time = (float)(key.mTime / anim->mTicksPerSecond);
             out_key.value = ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z);
             track.translations.push_back(out_key);
         }
@@ -339,21 +343,87 @@ bool CookAnimation(const fs::path& input, const fs::path& output) {
         for (unsigned int k = 0; k < channel->mNumRotationKeys; ++k) {
             const aiQuatKey& key = channel->mRotationKeys[k];
             ozz::animation::offline::RawAnimation::RotationKey out_key;
-            out_key.time = (float)key.mTime / (float)anim->mTicksPerSecond;
+            out_key.time = (float)(key.mTime / anim->mTicksPerSecond);
             out_key.value = ozz::math::Quaternion(key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w);
             track.rotations.push_back(out_key);
         }
         
-            // Scale keys
+        // Scale keys
         for (unsigned int k = 0; k < channel->mNumScalingKeys; ++k) {
             const aiVectorKey& key = channel->mScalingKeys[k];
             ozz::animation::offline::RawAnimation::ScaleKey out_key;
-            out_key.time = (float)key.mTime / (float)anim->mTicksPerSecond;
-            
-            // Force scale to 1.0 to avoid unit conversion issues
-            out_key.value = ozz::math::Float3(1.0f, 1.0f, 1.0f);
+            out_key.time = (float)(key.mTime / anim->mTicksPerSecond);
+            out_key.value = ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z);
             track.scales.push_back(out_key);
         }
+    }
+    
+    // For joints that have no animation channels, use rest pose keyframes at start and end
+    int tracksInitialized = 0;
+    
+    // First, extract rest poses from skeleton's SoA format
+    std::vector<ozz::math::Transform> restPoses(skeleton->num_joints());
+    for (int j = 0; j < skeleton->num_joints(); ++j) {
+        int soaIndex = j / 4;
+        int lane = j % 4;
+        const ozz::math::SoaTransform& soa = skeleton->joint_rest_poses()[soaIndex];
+        float* transX = (float*)&soa.translation.x;
+        float* transY = (float*)&soa.translation.y;
+        float* transZ = (float*)&soa.translation.z;
+        restPoses[j].translation = ozz::math::Float3(transX[lane], transY[lane], transZ[lane]);
+        
+        float* rotX = (float*)&soa.rotation.x;
+        float* rotY = (float*)&soa.rotation.y;
+        float* rotZ = (float*)&soa.rotation.z;
+        float* rotW = (float*)&soa.rotation.w;
+        restPoses[j].rotation = ozz::math::Quaternion(rotX[lane], rotY[lane], rotZ[lane], rotW[lane]);
+        
+        float* scaleX = (float*)&soa.scale.x;
+        float* scaleY = (float*)&soa.scale.y;
+        float* scaleZ = (float*)&soa.scale.z;
+        restPoses[j].scale = ozz::math::Float3(scaleX[lane], scaleY[lane], scaleZ[lane]);
+    }
+    
+    for (int j = 0; j < skeleton->num_joints(); ++j) {
+        ozz::animation::offline::RawAnimation::JointTrack& track = raw_animation.tracks[j];
+        
+        bool needsInit = track.translations.empty() && track.rotations.empty() && track.scales.empty();
+        if (needsInit) {
+            // Use REST POSE for joints without animation data
+            const ozz::math::Transform& rest = restPoses[j];
+            
+            ozz::animation::offline::RawAnimation::TranslationKey t0, t1;
+            t0.time = 0.0f;
+            t0.value = rest.translation;
+            t1.time = raw_animation.duration;
+            t1.value = rest.translation;
+            track.translations.push_back(t0);
+            track.translations.push_back(t1);
+            
+            ozz::animation::offline::RawAnimation::RotationKey r0, r1;
+            r0.time = 0.0f;
+            r0.value = rest.rotation;
+            r1.time = raw_animation.duration;
+            r1.value = rest.rotation;
+            track.rotations.push_back(r0);
+            track.rotations.push_back(r1);
+            
+            ozz::animation::offline::RawAnimation::ScaleKey s0, s1;
+            s0.time = 0.0f;
+            s0.value = rest.scale;
+            s1.time = raw_animation.duration;
+            s1.value = rest.scale;
+            track.scales.push_back(s0);
+            track.scales.push_back(s1);
+            
+            tracksInitialized++;
+        }
+    }
+    
+    // Validate before building
+    if (!raw_animation.Validate()) {
+        std::cerr << "[Cooker] Raw animation validation FAILED!" << std::endl;
+        return false;
     }
     
     ozz::animation::offline::AnimationBuilder anim_builder;
@@ -504,12 +574,14 @@ bool CookTexture(const fs::path& input, const fs::path& output) {
 }
 
 bool CookMesh(const fs::path& input, const fs::path& output) {
-    std::cout << "[Cooker] Processing Mesh: " << input << " -> " << output << std::endl;
+    std::cout << "[Cooker] Processing Mesh (COMPACT JOINTS): " << input << " -> " << output << std::endl;
 
     Assimp::Importer importer;
     
+    // aiProcess_OptimizeGraph collapses Assimp's intermediate $AssimpFbx$ nodes
     const aiScene* scene = importer.ReadFile(input.string(), 
-        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_LimitBoneWeights | aiProcess_PopulateArmatureData | aiProcess_GlobalScale);
+        aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenNormals | aiProcess_LimitBoneWeights | 
+        aiProcess_PopulateArmatureData | aiProcess_OptimizeGraph);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "[Cooker] Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -531,43 +603,177 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
         }
     }
 
-    std::vector<glm::mat4> inverseBindMatrices;
-    std::vector<ozz::math::Float4x4> bindPose;
-    if (skeleton) {
-        inverseBindMatrices.resize(skeleton->num_joints(), glm::mat4(1.0f));
-        
-        // Compute Bind Pose
-        bindPose.resize(skeleton->num_joints());
-        ozz::animation::LocalToModelJob job;
-        job.input = skeleton->joint_rest_poses();
-        job.output = ozz::make_span(bindPose);
-        job.skeleton = skeleton.get();
-        if (!job.Run()) {
-            std::cerr << "[Cooker] Failed to compute bind pose." << std::endl;
-            return false;
+    // ============================================
+    // PASS 1: Collect all USED skeleton joint indices and their IBMs
+    // ============================================
+    std::set<int> usedSkeletonIndices;
+    std::map<int, glm::mat4> skelIndexToIBM;
+    
+    std::function<void(const aiNode*)> collectUsedJoints = [&](const aiNode* node) {
+        for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+            if (!mesh->HasBones()) continue;
+            
+            for (unsigned int b = 0; b < mesh->mNumBones; b++) {
+                aiBone* bone = mesh->mBones[b];
+                std::string boneName = bone->mName.C_Str();
+                
+                auto it = joint_map.find(boneName);
+                if (it == joint_map.end()) continue;
+                
+                int skelIndex = it->second;
+                usedSkeletonIndices.insert(skelIndex);
+                
+                const aiMatrix4x4& m = bone->mOffsetMatrix;
+                glm::mat4 ibm;
+                ibm[0][0] = m.a1; ibm[0][1] = m.b1; ibm[0][2] = m.c1; ibm[0][3] = m.d1;
+                ibm[1][0] = m.a2; ibm[1][1] = m.b2; ibm[1][2] = m.c2; ibm[1][3] = m.d2;
+                ibm[2][0] = m.a3; ibm[2][1] = m.b3; ibm[2][2] = m.c3; ibm[2][3] = m.d3;
+                ibm[3][0] = m.a4; ibm[3][1] = m.b4; ibm[3][2] = m.c4; ibm[3][3] = m.d4;
+                skelIndexToIBM[skelIndex] = ibm;
+            }
         }
-
-        std::cout << "[Cooker] Skeleton has " << skeleton->num_joints() << " joints." << std::endl;
+        for (unsigned int i = 0; i < node->mNumChildren; i++) {
+            collectUsedJoints(node->mChildren[i]);
+        }
+    };
+    collectUsedJoints(scene->mRootNode);
+    
+    // ============================================
+    // Build COMPACT mapping: joint_remaps[compact] = skeleton_index
+    // ============================================
+    std::vector<uint16_t> joint_remaps;
+    std::map<int, int> skelToCompact;
+    
+    int compactIdx = 0;
+    for (int skelIdx : usedSkeletonIndices) {
+        joint_remaps.push_back(static_cast<uint16_t>(skelIdx));
+        skelToCompact[skelIdx] = compactIdx++;
     }
-
+    
+    // Build COMPACT inverse bind matrices
+    std::vector<glm::mat4> compactIBMs;
+    for (int skelIdx : usedSkeletonIndices) {
+        compactIBMs.push_back(skelIndexToIBM[skelIdx]);
+    }
+    
+    // ============================================
+    // PASS 2: Process vertices with COMPACT indices
+    // ============================================
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     uint32_t indexOffset = 0;
-    int matchedBones = 0;
-
-    // Traverse node hierarchy to process meshes with correct transforms
-    RecurseMesh(scene->mRootNode, glm::mat4(1.0f), scene, vertices, indices, indexOffset, joint_map, matchedBones, inverseBindMatrices, bindPose);
     
-    std::cout << "[Cooker] Total matched bones: " << matchedBones << std::endl;
-    if (inverseBindMatrices.size() > 0) {
-        glm::mat4& m = inverseBindMatrices[0];
-        std::cout << "[Cooker] First IBM: " << m[0][0] << " " << m[0][1] << " " << m[0][2] << " " << m[0][3] << std::endl;
-        std::cout << "                    " << m[1][0] << " " << m[1][1] << " " << m[1][2] << " " << m[1][3] << std::endl;
-        std::cout << "                    " << m[2][0] << " " << m[2][1] << " " << m[2][2] << " " << m[2][3] << std::endl;
-        std::cout << "                    " << m[3][0] << " " << m[3][1] << " " << m[3][2] << " " << m[3][3] << std::endl;
-    }
+    std::function<void(const aiNode*, const glm::mat4&)> processMeshes = [&](const aiNode* node, const glm::mat4& parentTransform) {
+        aiMatrix4x4 m = node->mTransformation;
+        glm::mat4 localTransform;
+        localTransform[0][0] = m.a1; localTransform[0][1] = m.b1; localTransform[0][2] = m.c1; localTransform[0][3] = m.d1;
+        localTransform[1][0] = m.a2; localTransform[1][1] = m.b2; localTransform[1][2] = m.c2; localTransform[1][3] = m.d2;
+        localTransform[2][0] = m.a3; localTransform[2][1] = m.b3; localTransform[2][2] = m.c3; localTransform[2][3] = m.d3;
+        localTransform[3][0] = m.a4; localTransform[3][1] = m.b4; localTransform[3][2] = m.c4; localTransform[3][3] = m.d4;
+        glm::mat4 globalTransform = parentTransform * localTransform;
+        glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(globalTransform)));
+        
+        for (unsigned int mi = 0; mi < node->mNumMeshes; mi++) {
+            aiMesh* mesh = scene->mMeshes[node->mMeshes[mi]];
+            uint32_t meshVertexOffset = static_cast<uint32_t>(vertices.size());
+            bool isSkinned = mesh->HasBones();
+            
+            // Add vertices
+            for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
+                Vertex vertex;
+                glm::vec4 pos(mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z, 1.0f);
+                
+                // Only bake transform for NON-skinned meshes
+                if (!isSkinned) {
+                    pos = globalTransform * pos;
+                }
+                vertex.position = glm::vec3(pos);
+                
+                if (mesh->HasNormals()) {
+                    glm::vec3 norm(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z);
+                    if (!isSkinned) norm = normalMatrix * norm;
+                    vertex.normal = glm::normalize(norm);
+                } else {
+                    vertex.normal = glm::vec3(0, 0, 0);
+                }
+                
+                if (mesh->mTextureCoords[0]) {
+                    vertex.uv = glm::vec2(mesh->mTextureCoords[0][v].x, 1.0f - mesh->mTextureCoords[0][v].y);
+                } else {
+                    vertex.uv = glm::vec2(0, 0);
+                }
+                
+                vertex.weights = glm::vec4(0);
+                vertex.joints = glm::vec4(0);  // Will use COMPACT indices
+                
+                vertices.push_back(vertex);
+            }
+            
+            // Process bones -> assign COMPACT joint indices to vertices
+            if (isSkinned) {
+                std::vector<int> boneCounts(mesh->mNumVertices, 0);
+                
+                for (unsigned int b = 0; b < mesh->mNumBones; b++) {
+                    aiBone* bone = mesh->mBones[b];
+                    std::string boneName = bone->mName.C_Str();
+                    
+                    auto it = joint_map.find(boneName);
+                    if (it == joint_map.end()) continue;
+                    
+                    int skelIndex = it->second;
+                    auto compactIt = skelToCompact.find(skelIndex);
+                    if (compactIt == skelToCompact.end()) continue;
+                    
+                    int compactIndex = compactIt->second;
+                    
+                    for (unsigned int w = 0; w < bone->mNumWeights; w++) {
+                        uint32_t vertexId = bone->mWeights[w].mVertexId;
+                        float weight = bone->mWeights[w].mWeight;
+                        
+                        int slot = boneCounts[vertexId];
+                        if (slot < 4) {
+                            vertices[meshVertexOffset + vertexId].weights[slot] = weight;
+                            vertices[meshVertexOffset + vertexId].joints[slot] = static_cast<float>(compactIndex);
+                            boneCounts[vertexId]++;
+                        }
+                    }
+                }
+                
+                // Normalize weights, handle unweighted vertices
+                for (unsigned int v = 0; v < mesh->mNumVertices; v++) {
+                    glm::vec4& wts = vertices[meshVertexOffset + v].weights;
+                    float total = wts.x + wts.y + wts.z + wts.w;
+                    if (total > 0.0f) {
+                        wts /= total;
+                    } else {
+                        // Unweighted vertex -> assign to first joint with weight 1
+                        wts = glm::vec4(1.0f, 0, 0, 0);
+                        vertices[meshVertexOffset + v].joints = glm::vec4(0, 0, 0, 0);
+                    }
+                }
+            }
+            
+            // Add indices
+            for (unsigned int f = 0; f < mesh->mNumFaces; f++) {
+                aiFace& face = mesh->mFaces[f];
+                for (unsigned int j = 0; j < face.mNumIndices; j++) {
+                    indices.push_back(face.mIndices[j] + indexOffset);
+                }
+            }
+            indexOffset += mesh->mNumVertices;
+        }
+        
+        for (unsigned int i = 0; i < node->mNumChildren; i++) {
+            processMeshes(node->mChildren[i], globalTransform);
+        }
+    };
+    processMeshes(scene->mRootNode, glm::mat4(1.0f));
 
-    // Write to file
+    // ============================================
+    // Write output file
+    // Format: Header | Vertices | Indices | IBMs | joint_remaps
+    // ============================================
     fs::path tempOutput = output;
     tempOutput += ".tmp";
 
@@ -581,14 +787,19 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
         OakMeshHeader header;
         header.vertexCount = static_cast<uint32_t>(vertices.size());
         header.indexCount = static_cast<uint32_t>(indices.size());
-        header.boneCount = static_cast<uint32_t>(inverseBindMatrices.size());
+        header.boneCount = static_cast<uint32_t>(compactIBMs.size());
+        header.jointRemapCount = static_cast<uint32_t>(joint_remaps.size());
 
         outFile.write(reinterpret_cast<const char*>(&header), sizeof(OakMeshHeader));
         outFile.write(reinterpret_cast<const char*>(vertices.data()), vertices.size() * sizeof(Vertex));
         outFile.write(reinterpret_cast<const char*>(indices.data()), indices.size() * sizeof(uint32_t));
         
         if (header.boneCount > 0) {
-            outFile.write(reinterpret_cast<const char*>(inverseBindMatrices.data()), inverseBindMatrices.size() * sizeof(glm::mat4));
+            outFile.write(reinterpret_cast<const char*>(compactIBMs.data()), compactIBMs.size() * sizeof(glm::mat4));
+        }
+        
+        if (header.jointRemapCount > 0) {
+            outFile.write(reinterpret_cast<const char*>(joint_remaps.data()), joint_remaps.size() * sizeof(uint16_t));
         }
 
         outFile.close();
@@ -596,6 +807,7 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
         if (fs::exists(output)) fs::remove(output);
         fs::rename(tempOutput, output);
         
+        std::cout << "[Cooker] Mesh cooked successfully with COMPACT joints!" << std::endl;
         return true;
     } catch (std::exception& e) {
         std::cerr << "[Cooker] Error writing mesh: " << e.what() << std::endl;

@@ -2,11 +2,13 @@
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <flecs.h>
+#include <iostream>
 #include "../Components/Components.h"
 #include "../Core/Log.h"
 #include "../Resources/Mesh.h"
 #include "../Resources/Texture.h"
 #include "../Resources/Shader.h"
+#include "../Resources/Skeleton.h"
 #include "../Platform/Window.h"
 
 namespace Systems {
@@ -21,11 +23,15 @@ namespace Systems {
         if (m_Sampler) {
             SDL_ReleaseGPUSampler(m_RenderDevice.GetDevice(), m_Sampler);
         }
+        if (m_DefaultSkinBuffer) {
+            SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), m_DefaultSkinBuffer);
+        }
     }
 
     void RenderSystem::Init() {
         CreatePipeline();
         CreateMeshPipeline();
+        CreateLinePipeline();
         
         SDL_GPUSamplerCreateInfo samplerInfo = {};
         samplerInfo.min_filter = SDL_GPU_FILTER_NEAREST;
@@ -117,7 +123,8 @@ namespace Systems {
             fragPath = "Assets/Shaders/Mesh.frag.spv";
         }
 
-        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
+        // Vertex Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 2 Uniform Buffers (Scene + Skin)
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 2);
         auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
 
         if (!vertShader || !fragShader) {
@@ -161,10 +168,10 @@ namespace Systems {
         vertexAttributes[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
         vertexAttributes[3].offset = offsetof(Resources::Vertex, weights);
 
-        // Joints
+        // Joints - using FLOAT4 to read as float, shader will convert
         vertexAttributes[4].location = 4;
         vertexAttributes[4].buffer_slot = 0;
-        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_UINT4;
+        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
         vertexAttributes[4].offset = offsetof(Resources::Vertex, joints);
 
         pipelineInfo.vertex_input_state.num_vertex_buffers = 1;
@@ -198,8 +205,184 @@ namespace Systems {
         }
     }
 
+    void RenderSystem::CreateLinePipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string vertPath, fragPath;
+
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/Line.vert.dxil";
+            fragPath = "Assets/Shaders/Line.frag.dxil";
+        } else {
+            vertPath = "Assets/Shaders/Line.vert.spv";
+            fragPath = "Assets/Shaders/Line.frag.spv";
+        }
+
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
+
+        if (!vertShader || !fragShader) {
+            LOG_CORE_ERROR("Failed to load line shaders!");
+            return;
+        }
+
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        // Vertex Input State
+        SDL_GPUVertexBufferDescription vertexBufferDesc = {};
+        vertexBufferDesc.slot = 0;
+        vertexBufferDesc.pitch = sizeof(LineVertex);
+        vertexBufferDesc.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDesc.instance_step_rate = 0;
+
+        SDL_GPUVertexAttribute vertexAttributes[2];
+        // Position
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].buffer_slot = 0;
+        vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[0].offset = offsetof(LineVertex, position);
+        
+        // Color
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].buffer_slot = 0;
+        vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[1].offset = offsetof(LineVertex, color);
+
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 1;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = &vertexBufferDesc;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 2;
+        pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
+
+        // Input Assembly
+        pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_LINELIST;
+
+        // Rasterizer
+        pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+
+        // Color Target
+        SDL_GPUColorTargetDescription colorTargetDesc = {};
+        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        colorTargetDesc.blend_state.enable_blend = false;
+
+        pipelineInfo.target_info.num_color_targets = 1;
+        pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+        
+        // Depth Stencil
+        SDL_GPUDepthStencilState depthStencilState = {};
+        depthStencilState.enable_depth_test = true;
+        depthStencilState.enable_depth_write = false; // Don't write depth for debug lines usually, or maybe yes? Let's say false for now to see them through transparent stuff? No, true is better for occlusion.
+        // Actually, let's disable depth test to see skeleton inside mesh
+        depthStencilState.enable_depth_test = false; 
+        depthStencilState.compare_op = SDL_GPU_COMPAREOP_ALWAYS;
+        
+        pipelineInfo.depth_stencil_state = depthStencilState;
+        pipelineInfo.target_info.has_depth_stencil_target = true;
+        pipelineInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
+
+        m_LinePipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_LinePipeline) {
+            LOG_CORE_ERROR("Failed to create line pipeline!");
+        } else {
+            LOG_CORE_INFO("Line Pipeline Created Successfully!");
+        }
+    }
+
     void RenderSystem::BeginFrame() {
+        // Cleanup resources from previous frames
+        for (auto b : m_BuffersToDelete) SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), b);
+        m_BuffersToDelete.clear();
+        for (auto b : m_TransferBuffersToDelete) SDL_ReleaseGPUTransferBuffer(m_RenderDevice.GetDevice(), b);
+        m_TransferBuffersToDelete.clear();
+
+        // Generate Debug Lines BEFORE BeginFrame (which starts the RenderPass)
+        // This allows us to upload data using CopyPass if needed, or just prepare data.
+        // Actually, we need a command buffer to do CopyPass.
+        // RenderDevice::BeginFrame acquires the command buffer.
+        // So we should probably do this:
+        // 1. Acquire Command Buffer (RenderDevice::BeginFrame)
+        // 2. Do Uploads (CopyPass)
+        // 3. Start Render Pass (RenderDevice::BeginRenderPass)
+        
+        // Currently RenderDevice::BeginFrame does NOT start the render pass.
+        // It acquires the command buffer and swapchain texture.
+        // RenderDevice::BeginRenderPass starts the pass.
+        
         m_RenderDevice.BeginFrame();
+        
+        // Now we have a command buffer but no render pass yet.
+        // We can generate lines and upload them here!
+        
+        m_LineVertices.clear();
+        
+        // Debug Draw Skeletons
+        m_Context.World->query<WorldTransform, AnimatorComponent>()
+            .each([&](flecs::entity e, WorldTransform& t, AnimatorComponent& anim) {
+                if (anim.skeleton && !anim.models.empty()) {
+                    const auto& parents = anim.skeleton->skeleton.joint_parents();
+                    int numJoints = anim.skeleton->skeleton.num_joints();
+                    
+                    for (int i = 0; i < numJoints; ++i) {
+                        int parent = parents[i];
+                        if (parent != ozz::animation::Skeleton::kNoParent) {
+                            glm::mat4 childModel;
+                            memcpy(&childModel, &anim.models[i], sizeof(glm::mat4));
+                            
+                            glm::mat4 parentModel;
+                            memcpy(&parentModel, &anim.models[parent], sizeof(glm::mat4));
+                            
+                            glm::vec3 p1 = glm::vec3(t.matrix * childModel * glm::vec4(0,0,0,1));
+                            glm::vec3 p2 = glm::vec3(t.matrix * parentModel * glm::vec4(0,0,0,1));
+                            
+                            DrawLine(p1, p2, {1.0f, 1.0f, 0.0f});
+                        }
+                    }
+                }
+            });
+
+        // Upload Lines if any
+        if (!m_LineVertices.empty()) {
+            SDL_GPUBufferCreateInfo bufferInfo = {};
+            bufferInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+            bufferInfo.size = m_LineVertices.size() * sizeof(LineVertex);
+            
+            SDL_GPUBuffer* lineBuffer = SDL_CreateGPUBuffer(m_RenderDevice.GetDevice(), &bufferInfo);
+            
+            SDL_GPUTransferBufferCreateInfo transferInfo = {};
+            transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            transferInfo.size = bufferInfo.size;
+            
+            SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_RenderDevice.GetDevice(), &transferInfo);
+            
+            Uint8* map = (Uint8*)SDL_MapGPUTransferBuffer(m_RenderDevice.GetDevice(), transferBuffer, false);
+            if (map) {
+                memcpy(map, m_LineVertices.data(), bufferInfo.size);
+                SDL_UnmapGPUTransferBuffer(m_RenderDevice.GetDevice(), transferBuffer);
+                
+                SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(m_RenderDevice.GetCommandBuffer());
+                SDL_GPUTransferBufferLocation source = {};
+                source.transfer_buffer = transferBuffer;
+                source.offset = 0;
+                
+                SDL_GPUBufferRegion destination = {};
+                destination.buffer = lineBuffer;
+                destination.offset = 0;
+                destination.size = bufferInfo.size;
+                
+                SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+                SDL_EndGPUCopyPass(copyPass);
+            }
+            
+            m_CurrentLineBuffer = lineBuffer;
+            m_BuffersToDelete.push_back(lineBuffer);
+            m_TransferBuffersToDelete.push_back(transferBuffer);
+        } else {
+            m_CurrentLineBuffer = nullptr;
+        }
     }
 
     void RenderSystem::DrawScene(double alpha) {
@@ -207,7 +390,77 @@ namespace Systems {
         
         if (!m_Pipeline) return;
 
+        // Prepare Skinning Data (UBO-based)
+        std::unordered_map<uint64_t, std::vector<glm::mat4>> skinData;
+        
+        m_Context.World->query<WorldTransform, MeshComponent, AnimatorComponent>()
+            .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp, AnimatorComponent& anim) {
+                if (meshComp.mesh && !anim.models.empty()) {
+                    const auto& compactIBMs = meshComp.mesh->GetInverseBindMatrices();
+                    const auto& jointRemaps = meshComp.mesh->GetJointRemaps();
+                    size_t usedJointCount = jointRemaps.size();
+                    
+                    std::vector<glm::mat4> jointMatrices(256, glm::mat4(1.0f));
+                    
+                    // Compute: skinningMatrix[compactIdx] = models[joint_remaps[compactIdx]] * ibms[compactIdx]
+                    for (size_t compactIdx = 0; compactIdx < usedJointCount && compactIdx < 256; ++compactIdx) {
+                        uint16_t skelIdx = jointRemaps[compactIdx];
+                        
+                        if (skelIdx < anim.models.size()) {
+                            glm::mat4 modelTransform;
+                            memcpy(&modelTransform, &anim.models[skelIdx], sizeof(glm::mat4));
+                            jointMatrices[compactIdx] = modelTransform * compactIBMs[compactIdx];
+                        }
+                    }
+                    
+                    skinData[e.id()] = std::move(jointMatrices);
+                }
+            });
+
+        // Copy Pass for Lines
+        SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(m_RenderDevice.GetCommandBuffer());
+
+        // Upload Lines
+        SDL_GPUBuffer* lineBuffer = nullptr;
+        if (!m_LineVertices.empty()) {
+            SDL_GPUBufferCreateInfo bufferInfo = {};
+            bufferInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+            bufferInfo.size = m_LineVertices.size() * sizeof(LineVertex);
+            
+            lineBuffer = SDL_CreateGPUBuffer(m_RenderDevice.GetDevice(), &bufferInfo);
+            
+            SDL_GPUTransferBufferCreateInfo transferInfo = {};
+            transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            transferInfo.size = bufferInfo.size;
+            
+            SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_RenderDevice.GetDevice(), &transferInfo);
+            
+            Uint8* map = (Uint8*)SDL_MapGPUTransferBuffer(m_RenderDevice.GetDevice(), transferBuffer, false);
+            memcpy(map, m_LineVertices.data(), bufferInfo.size);
+            SDL_UnmapGPUTransferBuffer(m_RenderDevice.GetDevice(), transferBuffer);
+            
+            SDL_GPUTransferBufferLocation source = {};
+            source.transfer_buffer = transferBuffer;
+            source.offset = 0;
+            
+            SDL_GPUBufferRegion destination = {};
+            destination.buffer = lineBuffer;
+            destination.offset = 0;
+            destination.size = bufferInfo.size;
+            
+            SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+            
+            m_BuffersToDelete.push_back(lineBuffer);
+            m_TransferBuffersToDelete.push_back(transferBuffer);
+        }
+        m_CurrentLineBuffer = lineBuffer;
+
+        SDL_EndGPUCopyPass(copyPass);
+
+        // 2. Begin Render Pass
+        if (!m_RenderDevice.BeginRenderPass()) return;
         SDL_GPURenderPass* pass = m_RenderDevice.GetRenderPass();
+
         if (pass) {
             // Draw Sprites
             SDL_BindGPUGraphicsPipeline(pass, m_Pipeline);
@@ -215,10 +468,7 @@ namespace Systems {
             m_Context.World->query<WorldTransform, SpriteComponent>()
                 .each([&](flecs::entity e, WorldTransform& t, SpriteComponent& s) {
                 if (s.texture) {
-                    // Use computed World Matrix
                     glm::mat4 model = t.matrix;
-
-                    // Push Uniform Data (Slot 0, Set 1 in shader)
                     SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &model, sizeof(model));
 
                     SDL_GPUTextureSamplerBinding binding;
@@ -238,77 +488,48 @@ namespace Systems {
                 glm::mat4 view = glm::mat4(1.0f);
                 glm::mat4 proj = glm::mat4(1.0f);
                 
-                // Find Primary Camera
                 bool cameraFound = false;
                 m_Context.World->query<LocalTransform, const CameraComponent>()
                     .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
                         if (cam.isPrimary && !cameraFound) {
-                            // View Matrix (Inverse of Camera Transform)
-                            // Reconstruct camera matrix from position and rotation
                             glm::mat4 camMatrix = glm::translate(glm::mat4(1.0f), t.position);
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.y), glm::vec3(0, 1, 0));
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.x), glm::vec3(1, 0, 0));
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
-                            
                             view = glm::inverse(camMatrix);
-
-                            // Projection Matrix
                             proj = glm::perspectiveRH_ZO(glm::radians(cam.fov), 1280.0f / 720.0f, cam.nearPlane, cam.farPlane);
-                            // proj[1][1] *= -1; // Vulkan clip space correction - Removed as user reported inverted Y
-                            
                             cameraFound = true;
                         }
                     });
 
                 if (!cameraFound) {
-                    // Fallback camera
                     view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
                     proj = glm::perspectiveRH_ZO(glm::radians(45.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
-                    // proj[1][1] *= -1;
                 }
 
                 m_Context.World->query<WorldTransform, MeshComponent>()
                     .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp) {
                     if (meshComp.mesh) {
-                        struct UBO {
+                        struct SceneUBO {
                             glm::mat4 model;
                             glm::mat4 view;
                             glm::mat4 proj;
-                            glm::mat4 jointMatrices[256];
-                        } ubo;
+                        } sceneUbo;
                         
-                        ubo.model = t.matrix;
-                        ubo.view = view;
-                        ubo.proj = proj;
+                        sceneUbo.model = t.matrix;
+                        sceneUbo.view = view;
+                        sceneUbo.proj = proj;
 
-                        // Skinning
-                        const AnimatorComponent* animator = nullptr;
-                        if (e.has<AnimatorComponent>()) {
-                            animator = &e.get<AnimatorComponent>();
-                        }
-                        
-                        if (animator && !animator->models.empty()) {
-                            size_t count = std::min(animator->models.size(), (size_t)256);
-                            
-                            const auto& ibms = meshComp.mesh->GetInverseBindMatrices();
-                            if (ibms.size() >= count) {
-                                for (size_t i = 0; i < count; ++i) {
-                                    glm::mat4 modelTransform;
-                                    memcpy(&modelTransform, &animator->models[i], sizeof(glm::mat4));
-                                    ubo.jointMatrices[i] = modelTransform * ibms[i];
-                                }
-                                
-                                // Fill rest with identity to be safe
-                                for (size_t i = count; i < 256; ++i) ubo.jointMatrices[i] = glm::mat4(1.0f);
-                            }
-                        } else {
-                            for (int i = 0; i < 256; ++i) ubo.jointMatrices[i] = glm::mat4(1.0f);
-                        }
+                        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &sceneUbo, sizeof(sceneUbo));
 
-                        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &ubo, sizeof(ubo));
+                        // Push Skin UBO (256 matrices)
+                        std::vector<glm::mat4> skinMatrices(256, glm::mat4(1.0f));
+                        if (skinData.count(e.id()) > 0) {
+                            skinMatrices = skinData[e.id()];
+                        }
+                        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, skinMatrices.data(), 256 * sizeof(glm::mat4));
                         
                         // Bind Vertex Buffers
-
                         SDL_GPUBufferBinding vertexBinding;
                         vertexBinding.buffer = meshComp.mesh->GetVertexBuffer();
                         vertexBinding.offset = 0;
@@ -324,8 +545,37 @@ namespace Systems {
                         SDL_DrawGPUIndexedPrimitives(pass, indexCount, 1, 0, 0, 0);
                     }
                 });
+
+                // Render Lines
+                if (m_LinePipeline && m_CurrentLineBuffer && !m_LineVertices.empty()) {
+                    SDL_BindGPUGraphicsPipeline(pass, m_LinePipeline);
+                    
+                    struct UBO {
+                        glm::mat4 view;
+                        glm::mat4 proj;
+                    } ubo;
+                    
+                    ubo.view = view;
+                    ubo.proj = proj;
+                    
+                    SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &ubo, sizeof(ubo));
+                    
+                    SDL_GPUBufferBinding binding = {};
+                    binding.buffer = m_CurrentLineBuffer;
+                    binding.offset = 0;
+                    
+                    SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
+                    SDL_DrawGPUPrimitives(pass, m_LineVertices.size(), 1, 0, 0);
+                }
             }
+            
+            m_LineVertices.clear();
         }
+    }
+
+    void RenderSystem::DrawLine(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color) {
+        m_LineVertices.push_back({start, color});
+        m_LineVertices.push_back({end, color});
     }
 
     void RenderSystem::EndFrame() {

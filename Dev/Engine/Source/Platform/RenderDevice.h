@@ -22,6 +22,7 @@ namespace Platform {
         SDL_GPUTexture* CreateTexture(uint32_t width, uint32_t height, const void* data);
         
         void BeginFrame();
+        bool BeginRenderPass(); // Returns true if successful
         void EndFrame();
 
     private:

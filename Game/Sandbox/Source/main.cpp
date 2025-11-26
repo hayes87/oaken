@@ -42,7 +42,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Mesh
-    std::string meshPath = "../Cooked/Assets/Models/test.oakmesh";
+    std::string meshPath = "../Cooked/Assets/Models/Joli.oakmesh";
     if (std::filesystem::exists(meshPath)) {
         g_TestMesh = engine.GetResourceManager().LoadMesh(meshPath);
         if (g_TestMesh) {
@@ -53,7 +53,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Skeleton
-    std::string skelPath = "../Cooked/Assets/Models/test.oakskel";
+    std::string skelPath = "../Cooked/Assets/Models/Joli.oakskel";
     if (std::filesystem::exists(skelPath)) {
         g_TestSkeleton = engine.GetResourceManager().LoadSkeleton(skelPath);
         if (g_TestSkeleton) {
@@ -64,7 +64,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Animation
-    std::string animPath = "../Cooked/Assets/Models/test.oakanim";
+    std::string animPath = "../Cooked/Assets/Models/Joli.oakanim";
     if (std::filesystem::exists(animPath)) {
         g_TestAnimation = engine.GetResourceManager().LoadAnimation(animPath);
         if (g_TestAnimation) {
@@ -81,8 +81,8 @@ GAME_EXPORT void GameInit(Engine& engine) {
     // Create Camera if it doesn't exist
     if (engine.GetContext().World->count<CameraComponent>() == 0) {
         engine.GetContext().World->entity("MainCamera")
-            .set<LocalTransform>({ {0.0f, 2.0f, 5.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
-            .set<CameraComponent>({ 45.0f, 0.1f, 100.0f, true });
+            .set<LocalTransform>({ {0.0f, 1.0f, 4.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+            .set<CameraComponent>({ 45.0f, 0.1f, 1000.0f, true });
         LOG_INFO("Created MainCamera entity");
     }
 
@@ -100,7 +100,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
 
         if (g_TestMesh) {
             auto meshEntity = engine.GetContext().World->entity("TestMesh")
-                .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+                .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
                 .set<MeshComponent>({g_TestMesh});
              
             if (g_TestSkeleton) {

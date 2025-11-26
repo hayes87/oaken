@@ -1,6 +1,6 @@
 #include "Mesh.h"
 #include "../Platform/RenderDevice.h"
-#include <iostream>
+#include <set>
 
 namespace Resources {
 
@@ -28,11 +28,13 @@ namespace Resources {
         std::vector<char> data = ResourceManager::ReadFile(m_Path);
         if (data.empty()) return false;
 
+        // New header with jointRemapCount
         struct OakMeshHeader {
             char signature[4];
             uint32_t vertexCount;
             uint32_t indexCount;
-            uint32_t boneCount;
+            uint32_t boneCount;       // COMPACT bone count
+            uint32_t jointRemapCount; // Same as boneCount (for joint_remaps)
         };
 
         if (data.size() < sizeof(OakMeshHeader)) return false;
@@ -42,30 +44,29 @@ namespace Resources {
 
         uint32_t vertexDataSize = header->vertexCount * sizeof(Vertex);
         uint32_t indexDataSize = header->indexCount * sizeof(uint32_t);
+        uint32_t ibmDataSize = header->boneCount * sizeof(glm::mat4);
+        uint32_t remapDataSize = header->jointRemapCount * sizeof(uint16_t);
         
         const char* vertexData = data.data() + sizeof(OakMeshHeader);
         const char* indexData = vertexData + vertexDataSize;
         const char* ibmData = indexData + indexDataSize;
+        const char* remapData = ibmData + ibmDataSize;
 
-        // Debug Log
-        std::cout << "[Mesh] Loading " << m_Path << std::endl;
-        std::cout << "  Vertices: " << header->vertexCount << std::endl;
-        std::cout << "  Indices: " << header->indexCount << std::endl;
-        if (header->vertexCount > 0) {
-            const Vertex* v = reinterpret_cast<const Vertex*>(vertexData);
-            std::cout << "  V0 Pos: " << v[0].position.x << ", " << v[0].position.y << ", " << v[0].position.z << std::endl;
-            std::cout << "  V0 W: " << v[0].weights.x << ", " << v[0].weights.y << ", " << v[0].weights.z << ", " << v[0].weights.w << std::endl;
-            std::cout << "  V0 J: " << v[0].joints.x << ", " << v[0].joints.y << ", " << v[0].joints.z << ", " << v[0].joints.w << std::endl;
-        }
-
-        // Read IBMs
+        // Read COMPACT IBMs
         m_InverseBindMatrices.clear();
         if (header->boneCount > 0) {
             m_InverseBindMatrices.resize(header->boneCount);
-            memcpy(m_InverseBindMatrices.data(), ibmData, header->boneCount * sizeof(glm::mat4));
+            memcpy(m_InverseBindMatrices.data(), ibmData, ibmDataSize);
+        }
+        
+        // Read joint_remaps
+        m_JointRemaps.clear();
+        if (header->jointRemapCount > 0) {
+            m_JointRemaps.resize(header->jointRemapCount);
+            memcpy(m_JointRemaps.data(), remapData, remapDataSize);
         }
 
-        // Create Buffers
+        // Create GPU Buffers
         SDL_GPUBufferCreateInfo vertexBufferInfo = {};
         vertexBufferInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
         vertexBufferInfo.size = vertexDataSize;

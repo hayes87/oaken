@@ -80,6 +80,10 @@ namespace Platform {
         } 
         // Note: We should also resize if w/h changed, but SDL_GPUTexture doesn't expose size easily.
         // For now, assume constant size or handle resize event elsewhere.
+    }
+
+    bool RenderDevice::BeginRenderPass() {
+        if (!m_CommandBuffer || !m_SwapchainTexture) return false;
 
         if (m_SwapchainTexture) {
             SDL_GPUColorTargetInfo colorTargetInfo = {};
@@ -99,6 +103,7 @@ namespace Platform {
 
             m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, &colorTargetInfo, 1, &depthStencilInfo);
         }
+        return m_RenderPass != nullptr;
     }
 
     void RenderDevice::EndFrame() {

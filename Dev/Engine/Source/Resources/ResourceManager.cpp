@@ -194,6 +194,12 @@ namespace Resources {
 
     std::shared_ptr<Shader> ResourceManager::LoadShader(const std::string& path, SDL_GPUShaderStage stage,
         uint32_t samplers, uint32_t storageTextures, uint32_t storageBuffers, uint32_t uniformBuffers) {
+        
+        // Debug Log
+        std::cout << "[ResourceManager] LoadShader: " << path 
+                  << " | SB: " << storageBuffers 
+                  << " | UB: " << uniformBuffers << std::endl;
+
         // Check Cache
         if (m_Resources.find(path) != m_Resources.end()) {
             return std::dynamic_pointer_cast<Shader>(m_Resources[path]);
