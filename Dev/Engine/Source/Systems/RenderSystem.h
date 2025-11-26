@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <vector>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace Systems {
 
@@ -25,6 +26,12 @@ namespace Systems {
         void EndFrame();
 
         void DrawLine(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color);
+        
+        // Debug drawing for physics visualization
+        void DrawWireBox(const glm::vec3& center, const glm::vec3& halfExtents, const glm::vec3& color, const glm::quat& rotation = glm::quat(1,0,0,0));
+        void DrawWireSphere(const glm::vec3& center, float radius, const glm::vec3& color, int segments = 16);
+        void DrawWireCapsule(const glm::vec3& center, float halfHeight, float radius, const glm::vec3& color, int segments = 12);
+        void DrawPhysicsDebug(); // Draw all colliders in the scene
 
     private:
         Core::GameContext& m_Context;

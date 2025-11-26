@@ -346,6 +346,17 @@ namespace Systems {
 
             // Update ECS transform from character position
             RVec3 newPos = character->GetPosition();
+            
+            // Debug: Log position updates periodically
+            static int frameCounter = 0;
+            if (frameCounter++ % 60 == 0) {
+                LOG_CORE_INFO("Character physics: pos=({:.2f},{:.2f},{:.2f}), grounded={}, vel=({:.2f},{:.2f},{:.2f})",
+                    newPos.GetX(), newPos.GetY(), newPos.GetZ(),
+                    physics.isOnGround,
+                    velocity.GetX(), velocity.GetY(), velocity.GetZ());
+            }
+            
+            transform.position = glm::vec3(newPos.GetX(), newPos.GetY(), newPos.GetZ());
             transform.position = glm::vec3(newPos.GetX(), newPos.GetY(), newPos.GetZ());
 
             // Update controller grounded state

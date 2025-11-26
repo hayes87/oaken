@@ -72,5 +72,6 @@ private:
 
     bool m_IsRunning = false;
     bool m_EditorMode = true;
+    bool m_DebugPhysics = true;  // Draw physics colliders
     double m_TimeLimit = 0.0;
 };

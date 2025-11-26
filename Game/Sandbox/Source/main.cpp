@@ -196,12 +196,14 @@ GAME_EXPORT void GameInit(Engine& engine) {
     // Create test mesh entity first (so we can reference it for camera follow)
     flecs::entity meshEntity;
     if (engine.GetContext().World->count<MeshComponent>() == 0 && g_TestMesh) {
+        // Character spawns at Y=0 (ground collision is at Y=0)
+        // The visual mesh is scaled to 0.01, physics capsule is world scale (1.8m tall)
         meshEntity = engine.GetContext().World->entity("TestMesh")
-            .set<LocalTransform>({ {0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
+            .set<LocalTransform>({ {0.0f, 0.9f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })  // Spawn capsule center at half-height
             .set<MeshComponent>({g_TestMesh})
             .set<CharacterController>({ 
                 {0.0f, 0.0f, 0.0f},  // velocity
-                3.0f,                 // moveSpeed (scaled for small character)
+                3.0f,                 // moveSpeed
                 2.0f,                 // runMultiplier
                 10.0f,                // turnSpeed
                 0.0f,                 // targetYaw
@@ -209,11 +211,11 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 true                  // isGrounded
             })
             .set<CharacterPhysics>({
-                1.8f * 0.01f,         // height (scaled for character)
-                0.3f * 0.01f,         // radius (scaled for character)
+                1.8f,                 // height (world scale - 1.8 meters tall)
+                0.3f,                 // radius (world scale - 0.3 meters)
                 70.0f,                // mass
                 45.0f,                // max slope angle
-                0.3f * 0.01f,         // max step height (scaled)
+                0.35f,                // max step height (35cm - can step over small objects)
                 false,                // isOnGround (set by physics)
                 {0.0f, 1.0f, 0.0f},   // ground normal
                 nullptr               // characterVirtual (set by physics)
@@ -286,7 +288,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 20.0f,          // pitch
                 -80.0f,         // minPitch
                 80.0f,          // maxPitch
-                {0.0f, 0.8f, 0.0f}, // offset (look at character center, scaled)
+                {0.0f, 1.2f, 0.0f}, // offset (look at character chest height)
                 0.2f,           // sensitivity
                 1.0f,           // zoomSpeed
                 0.85f,          // positionSmoothing (camera lag - higher = more lag)
