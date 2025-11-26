@@ -22,6 +22,9 @@ namespace Platform {
         SDL_Window* GetNativeWindow() const { return m_Window; }
         int GetWidth() const { return m_Data.Width; }
         int GetHeight() const { return m_Data.Height; }
+        float GetAspectRatio() const { return m_Data.Height > 0 ? (float)m_Data.Width / (float)m_Data.Height : 1.0f; }
+        
+        void OnResize(int width, int height) { m_Data.Width = width; m_Data.Height = height; }
 
         bool ShouldClose() const { return m_ShouldClose; }
         void SetShouldClose(bool close) { m_ShouldClose = close; }

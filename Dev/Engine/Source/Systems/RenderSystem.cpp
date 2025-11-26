@@ -490,6 +490,8 @@ namespace Systems {
                 glm::mat4 proj = glm::mat4(1.0f);
                 glm::vec3 cameraPosition = glm::vec3(0, 2, 5);
                 
+                float aspectRatio = m_RenderDevice.GetWindow()->GetAspectRatio();
+                
                 bool cameraFound = false;
                 m_Context.World->query<LocalTransform, const CameraComponent>()
                     .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
@@ -500,14 +502,14 @@ namespace Systems {
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.x), glm::vec3(1, 0, 0));
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
                             view = glm::inverse(camMatrix);
-                            proj = glm::perspectiveRH_ZO(glm::radians(cam.fov), 1280.0f / 720.0f, cam.nearPlane, cam.farPlane);
+                            proj = glm::perspectiveRH_ZO(glm::radians(cam.fov), aspectRatio, cam.nearPlane, cam.farPlane);
                             cameraFound = true;
                         }
                     });
 
                 if (!cameraFound) {
                     view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-                    proj = glm::perspectiveRH_ZO(glm::radians(45.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
+                    proj = glm::perspectiveRH_ZO(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
                 }
 
                 // Gather lights

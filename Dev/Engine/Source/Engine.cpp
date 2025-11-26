@@ -132,6 +132,9 @@ bool Engine::Step() {
             if (event.type == SDL_EVENT_QUIT) {
                 m_Window->SetShouldClose(true);
             }
+            if (event.type == SDL_EVENT_WINDOW_RESIZED) {
+                m_Window->OnResize(event.window.data1, event.window.data2);
+            }
         }
     }
 
