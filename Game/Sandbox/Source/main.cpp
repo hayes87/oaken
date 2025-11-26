@@ -130,6 +130,29 @@ GAME_EXPORT void GameInit(Engine& engine) {
         }
     }
 
+    // Create Directional Light (sun)
+    if (engine.GetContext().World->count<DirectionalLight>() == 0) {
+        engine.GetContext().World->entity("Sun")
+            .set<DirectionalLight>({
+                glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f)),  // direction (pointing down and to the side)
+                {1.0f, 0.95f, 0.9f},    // warm sunlight color
+                1.0f,                    // intensity
+                {0.15f, 0.15f, 0.2f}    // ambient (slight blue tint)
+            });
+        LOG_INFO("Created Sun directional light");
+        
+        // Add a point light for extra illumination
+        engine.GetContext().World->entity("PointLight1")
+            .set<LocalTransform>({ {2.0f, 2.0f, 2.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+            .set<PointLight>({
+                {0.8f, 0.6f, 1.0f},    // purple-ish color
+                2.0f,                   // intensity
+                8.0f,                   // radius
+                2.0f                    // falloff
+            });
+        LOG_INFO("Created PointLight1");
+    }
+
     // Create a test entity with AttributeSet if it doesn't exist
     if (engine.GetContext().World->count<AttributeSet>() == 0) {
         engine.GetContext().World->entity("Player")

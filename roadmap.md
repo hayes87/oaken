@@ -44,6 +44,10 @@
     - [x] Implement `CharacterController` component (Velocity, State).
     - [x] Map Input to Character Movement.
     - [x] **Generic Input Axes**: Abstract input for future gamepad support.
+- [x] **Basic Lighting**:
+    - [x] Add `DirectionalLight` and `PointLight` components.
+    - [x] Implement Blinn-Phong shading in Mesh shader.
+    - [x] Pass light uniforms to shader.
 
 ## Phase 5: Core Systems & Gameplay (Next Up)
 - [ ] **Multithreading Foundation**:

@@ -95,3 +95,19 @@ struct CharacterController {
     CharacterState state = CharacterState::Idle;
     bool isGrounded = true;         // For future physics integration
 };
+
+// Directional light (sun-like, affects entire scene)
+struct DirectionalLight {
+    glm::vec3 direction = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));
+    glm::vec3 color = {1.0f, 0.95f, 0.9f}; // Warm sunlight
+    float intensity = 1.0f;
+    glm::vec3 ambient = {0.1f, 0.1f, 0.15f}; // Ambient contribution
+};
+
+// Point light (local light source with falloff)
+struct PointLight {
+    glm::vec3 color = {1.0f, 1.0f, 1.0f};
+    float intensity = 1.0f;
+    float radius = 10.0f;           // Attenuation radius
+    float falloff = 2.0f;           // Falloff exponent (2.0 = quadratic)
+};

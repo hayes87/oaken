@@ -125,7 +125,8 @@ namespace Systems {
 
         // Vertex Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 2 Uniform Buffers (Scene + Skin)
         auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 2);
-        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
+        // Fragment Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (Lights)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 1);
 
         if (!vertShader || !fragShader) {
             LOG_CORE_ERROR("Failed to load mesh shaders!");
@@ -487,11 +488,13 @@ namespace Systems {
                 // Camera Matrices (View/Proj)
                 glm::mat4 view = glm::mat4(1.0f);
                 glm::mat4 proj = glm::mat4(1.0f);
+                glm::vec3 cameraPosition = glm::vec3(0, 2, 5);
                 
                 bool cameraFound = false;
                 m_Context.World->query<LocalTransform, const CameraComponent>()
                     .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
                         if (cam.isPrimary && !cameraFound) {
+                            cameraPosition = t.position;
                             glm::mat4 camMatrix = glm::translate(glm::mat4(1.0f), t.position);
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.y), glm::vec3(0, 1, 0));
                             camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.x), glm::vec3(1, 0, 0));
@@ -506,6 +509,50 @@ namespace Systems {
                     view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
                     proj = glm::perspectiveRH_ZO(glm::radians(45.0f), 1280.0f / 720.0f, 0.1f, 100.0f);
                 }
+
+                // Gather lights
+                constexpr int MAX_POINT_LIGHTS = 8;
+                
+                struct LightUBO {
+                    glm::vec4 dirLightDir;      // xyz = direction, w = intensity
+                    glm::vec4 dirLightColor;    // rgb = color, a = unused
+                    glm::vec4 ambientColor;     // rgb = ambient, a = unused
+                    glm::vec4 cameraPos;        // xyz = position, w = unused
+                    glm::vec4 pointLightPos[MAX_POINT_LIGHTS];   // xyz = position, w = radius
+                    glm::vec4 pointLightColor[MAX_POINT_LIGHTS]; // rgb = color, a = intensity
+                    int numPointLights;
+                    float shininess;
+                    glm::vec2 _padding;
+                } lightUbo;
+                
+                // Default directional light
+                lightUbo.dirLightDir = glm::vec4(-0.5f, -1.0f, -0.3f, 1.0f);
+                lightUbo.dirLightColor = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f);
+                lightUbo.ambientColor = glm::vec4(0.15f, 0.15f, 0.2f, 1.0f);
+                lightUbo.cameraPos = glm::vec4(cameraPosition, 1.0f);
+                lightUbo.numPointLights = 0;
+                lightUbo.shininess = 32.0f;
+                
+                // Query directional lights (use first one found)
+                m_Context.World->query<const DirectionalLight>()
+                    .each([&](flecs::entity e, const DirectionalLight& light) {
+                        lightUbo.dirLightDir = glm::vec4(light.direction, light.intensity);
+                        lightUbo.dirLightColor = glm::vec4(light.color, 1.0f);
+                        lightUbo.ambientColor = glm::vec4(light.ambient, 1.0f);
+                    });
+                
+                // Query point lights
+                int pointLightIdx = 0;
+                m_Context.World->query<const WorldTransform, const PointLight>()
+                    .each([&](flecs::entity e, const WorldTransform& t, const PointLight& light) {
+                        if (pointLightIdx < MAX_POINT_LIGHTS) {
+                            glm::vec3 pos = glm::vec3(t.matrix[3]);
+                            lightUbo.pointLightPos[pointLightIdx] = glm::vec4(pos, light.radius);
+                            lightUbo.pointLightColor[pointLightIdx] = glm::vec4(light.color, light.intensity);
+                            pointLightIdx++;
+                        }
+                    });
+                lightUbo.numPointLights = pointLightIdx;
 
                 m_Context.World->query<WorldTransform, MeshComponent>()
                     .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp) {
@@ -528,6 +575,9 @@ namespace Systems {
                             skinMatrices = skinData[e.id()];
                         }
                         SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, skinMatrices.data(), 256 * sizeof(glm::mat4));
+                        
+                        // Push Light UBO to fragment shader
+                        SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, &lightUbo, sizeof(lightUbo));
                         
                         // Bind Vertex Buffers
                         SDL_GPUBufferBinding vertexBinding;

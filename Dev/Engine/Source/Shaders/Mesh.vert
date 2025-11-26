@@ -7,8 +7,8 @@ layout(location = 3) in vec4 inWeights;
 layout(location = 4) in vec4 inJoints; // COMPACT joint indices (0 to usedJointCount-1)
 
 layout(location = 0) out vec2 outUV;
-layout(location = 1) out vec3 outNormal;
-layout(location = 2) out float outDebug;
+layout(location = 1) out vec3 outWorldNormal;
+layout(location = 2) out vec3 outWorldPos;
 
 // Scene uniforms (MVP)
 layout(std140, set = 1, binding = 0) uniform SceneUniforms {
@@ -35,15 +35,18 @@ void main() {
     // Apply skinning to position
     vec4 skinnedPos = skinMatrix * vec4(inPosition, 1.0);
     
-    // Debug: output diagonal sum (should be ~4.0 for identity)
-    outDebug = skinMatrix[0][0] + skinMatrix[1][1] + skinMatrix[2][2] + skinMatrix[3][3];
+    // World space position (for lighting)
+    vec4 worldPos = scene.model * skinnedPos;
+    outWorldPos = worldPos.xyz;
     
-    gl_Position = scene.proj * scene.view * scene.model * skinnedPos;
+    gl_Position = scene.proj * scene.view * worldPos;
     outUV = inUV;
     
-    // Transform normal by skinMatrix
+    // Transform normal to world space
     mat3 normalMatrix = mat3(skinMatrix);
-    vec3 transformedNormal = normalMatrix * inNormal;
-    float len = length(transformedNormal);
-    outNormal = (len > 0.0001) ? transformedNormal / len : vec3(0.0, 1.0, 0.0);
+    vec3 skinnedNormal = normalMatrix * inNormal;
+    
+    // Apply model rotation to normal (use transpose of inverse for correct normal transform)
+    mat3 modelNormalMatrix = transpose(inverse(mat3(scene.model)));
+    outWorldNormal = normalize(modelNormalMatrix * skinnedNormal);
 }
