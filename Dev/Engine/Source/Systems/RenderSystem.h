@@ -99,13 +99,22 @@ namespace Systems {
         void CreateInstancedMeshPipeline();
         void CreateLinePipeline();
         void CreateToneMappingPipeline();
+        void CreateDepthOnlyPipeline();
+        void CreateLightCullingPipeline();
         
         void RenderToneMappingPass();  // Tone map HDR -> Swapchain
+        void RenderDepthPrePass(const glm::mat4& view, const glm::mat4& proj);  // Depth pre-pass for Forward+
+        void DispatchLightCulling(const glm::mat4& view, const glm::mat4& proj);  // Light culling compute
         
         void BuildBatches();
         void RenderBatches(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj, const void* lightUbo, size_t lightUboSize);
         void RenderSkinnedMeshes(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj, const void* lightUbo, size_t lightUboSize,
                                   const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData);
+        
+        // Forward+ pipelines
+        SDL_GPUGraphicsPipeline* m_DepthOnlyPipeline = nullptr;
+        SDL_GPUComputePipeline* m_LightCullingPipeline = nullptr;
+        SDL_GPUSampler* m_DepthSampler = nullptr;  // For sampling depth in compute
     };
 
 }

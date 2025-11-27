@@ -52,6 +52,8 @@ namespace Systems {
         CreateInstancedMeshPipeline();
         CreateLinePipeline();
         CreateToneMappingPipeline();
+        CreateDepthOnlyPipeline();
+        CreateLightCullingPipeline();
         
         // Nearest neighbor sampler (for sprites/pixel art)
         SDL_GPUSamplerCreateInfo samplerInfo = {};
@@ -534,6 +536,222 @@ namespace Systems {
         } else {
             LOG_CORE_INFO("Tone Mapping Pipeline Created Successfully!");
         }
+    }
+
+    void RenderSystem::CreateDepthOnlyPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string vertPath, fragPath;
+        
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/DepthOnly.vert.dxil";
+            fragPath = "Assets/Shaders/DepthOnly.frag.dxil";
+        } else {
+            vertPath = "Assets/Shaders/DepthOnly.vert.spv";
+            fragPath = "Assets/Shaders/DepthOnly.frag.spv";
+        }
+        
+        // Depth-only vertex shader: same as instanced mesh but only writes depth
+        // 1 uniform buffer (ViewProjection at binding 0)
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
+        // Empty fragment shader
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
+        
+        if (!vertShader || !fragShader) {
+            LOG_CORE_WARN("Failed to load depth-only shaders - Forward+ will be unavailable");
+            return;
+        }
+        
+        // Same vertex layout as instanced mesh shader
+        SDL_GPUVertexBufferDescription vertexBufferDesc[2] = {};
+        
+        // Buffer 0: Mesh vertices
+        vertexBufferDesc[0].slot = 0;
+        vertexBufferDesc[0].pitch = sizeof(float) * 8;  // pos(3) + normal(3) + uv(2)
+        vertexBufferDesc[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDesc[0].instance_step_rate = 0;
+        
+        // Buffer 1: Instance data (mat4 model + vec4 color)
+        vertexBufferDesc[1].slot = 1;
+        vertexBufferDesc[1].pitch = sizeof(float) * 20;  // mat4(16) + vec4(4)
+        vertexBufferDesc[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+        vertexBufferDesc[1].instance_step_rate = 0;  // Must be 0 per SDL_GPU spec
+        
+        SDL_GPUVertexAttribute vertexAttributes[8] = {};
+        // Position
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].buffer_slot = 0;
+        vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[0].offset = 0;
+        // Normal
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].buffer_slot = 0;
+        vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[1].offset = sizeof(float) * 3;
+        // UV
+        vertexAttributes[2].location = 2;
+        vertexAttributes[2].buffer_slot = 0;
+        vertexAttributes[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        vertexAttributes[2].offset = sizeof(float) * 6;
+        // Instance model matrix (4 vec4s at locations 3-6)
+        for (int i = 0; i < 4; i++) {
+            vertexAttributes[3 + i].location = 3 + i;
+            vertexAttributes[3 + i].buffer_slot = 1;
+            vertexAttributes[3 + i].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+            vertexAttributes[3 + i].offset = sizeof(float) * 4 * i;
+        }
+        // Instance color
+        vertexAttributes[7].location = 7;
+        vertexAttributes[7].buffer_slot = 1;
+        vertexAttributes[7].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[7].offset = sizeof(float) * 16;
+        
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 2;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDesc;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 8;
+        pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
+        
+        pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        
+        pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+        pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+        
+        // No color target for depth-only pass
+        pipelineInfo.target_info.num_color_targets = 0;
+        pipelineInfo.target_info.color_target_descriptions = nullptr;
+        
+        // Depth buffer configuration
+        pipelineInfo.target_info.has_depth_stencil_target = true;
+        pipelineInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
+        
+        pipelineInfo.depth_stencil_state.enable_depth_test = true;
+        pipelineInfo.depth_stencil_state.enable_depth_write = true;
+        pipelineInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        
+        m_DepthOnlyPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_DepthOnlyPipeline) {
+            LOG_CORE_WARN("Failed to create depth-only pipeline - Forward+ will be unavailable");
+        } else {
+            LOG_CORE_INFO("Depth-Only Pipeline Created Successfully!");
+        }
+    }
+
+    void RenderSystem::CreateLightCullingPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string compPath;
+        
+        if (std::string(driver) == "direct3d12") {
+            compPath = "Assets/Shaders/LightCulling.comp.dxil";
+        } else {
+            compPath = "Assets/Shaders/LightCulling.comp.spv";
+        }
+        
+        // For compute shaders, we just load the bytecode directly (not via LoadShader)
+        std::vector<char> bytecode = Resources::ResourceManager::ReadFile(compPath);
+        if (bytecode.empty()) {
+            LOG_CORE_WARN("Failed to load light culling compute shader - Forward+ will be unavailable");
+            return;
+        }
+        
+        SDL_GPUComputePipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.code = reinterpret_cast<const Uint8*>(bytecode.data());
+        pipelineInfo.code_size = bytecode.size();
+        pipelineInfo.entrypoint = "main";
+        pipelineInfo.format = (std::string(driver) == "direct3d12") ? SDL_GPU_SHADERFORMAT_DXIL : SDL_GPU_SHADERFORMAT_SPIRV;
+        pipelineInfo.num_samplers = 1;
+        pipelineInfo.num_readonly_storage_textures = 0;
+        pipelineInfo.num_readonly_storage_buffers = 1;  // Light buffer
+        pipelineInfo.num_readwrite_storage_textures = 0;
+        pipelineInfo.num_readwrite_storage_buffers = 1; // Tile light indices
+        pipelineInfo.num_uniform_buffers = 1;           // View data
+        pipelineInfo.threadcount_x = 16;
+        pipelineInfo.threadcount_y = 16;
+        pipelineInfo.threadcount_z = 1;
+        
+        m_LightCullingPipeline = SDL_CreateGPUComputePipeline(device, &pipelineInfo);
+        if (!m_LightCullingPipeline) {
+            LOG_CORE_WARN("Failed to create light culling compute pipeline: {} - Forward+ will be unavailable", SDL_GetError());
+        } else {
+            LOG_CORE_INFO("Light Culling Compute Pipeline Created Successfully!");
+            
+            // Create depth sampler for compute shader
+            SDL_GPUSamplerCreateInfo samplerInfo = {};
+            samplerInfo.min_filter = SDL_GPU_FILTER_NEAREST;
+            samplerInfo.mag_filter = SDL_GPU_FILTER_NEAREST;
+            samplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+            samplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            samplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            
+            m_DepthSampler = SDL_CreateGPUSampler(device, &samplerInfo);
+        }
+    }
+
+    void RenderSystem::RenderDepthPrePass(const glm::mat4& view, const glm::mat4& proj) {
+        if (!m_DepthOnlyPipeline || !m_RenderDevice.IsForwardPlusEnabled()) return;
+        
+        if (!m_RenderDevice.BeginDepthPrePass()) return;
+        
+        SDL_GPURenderPass* pass = m_RenderDevice.GetRenderPass();
+        SDL_BindGPUGraphicsPipeline(pass, m_DepthOnlyPipeline);
+        
+        // Set viewport
+        SDL_GPUViewport viewport = {};
+        viewport.x = 0;
+        viewport.y = 0;
+        viewport.w = static_cast<float>(m_RenderDevice.GetRenderWidth());
+        viewport.h = static_cast<float>(m_RenderDevice.GetRenderHeight());
+        viewport.min_depth = 0.0f;
+        viewport.max_depth = 1.0f;
+        SDL_SetGPUViewport(pass, &viewport);
+        
+        // Push ViewProjection uniform
+        struct ViewProj {
+            glm::mat4 view;
+            glm::mat4 proj;
+        } vp;
+        vp.view = view;
+        vp.proj = proj;
+        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &vp, sizeof(vp));
+        
+        // Render all batches (depth only)
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (batch.instances.empty()) continue;
+            
+            auto mesh = batch.mesh;
+            if (!mesh) continue;
+            
+            SDL_GPUBufferBinding vertexBuffers[2] = {};
+            vertexBuffers[0].buffer = mesh->GetVertexBuffer();
+            vertexBuffers[0].offset = 0;
+            vertexBuffers[1].buffer = m_InstanceBuffer;
+            vertexBuffers[1].offset = batch.instanceOffset * sizeof(Systems::MeshInstance);
+            
+            SDL_BindGPUVertexBuffers(pass, 0, vertexBuffers, 2);
+            
+            SDL_GPUBufferBinding indexBufferBinding = {};
+            indexBufferBinding.buffer = mesh->GetIndexBuffer();
+            indexBufferBinding.offset = 0;
+            SDL_BindGPUIndexBuffer(pass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            
+            SDL_DrawGPUIndexedPrimitives(pass, mesh->GetIndexCount(), static_cast<uint32_t>(batch.instances.size()), 0, 0, 0);
+        }
+        
+        m_RenderDevice.EndRenderPass();
+    }
+
+    void RenderSystem::DispatchLightCulling(const glm::mat4& view, const glm::mat4& proj) {
+        if (!m_LightCullingPipeline || !m_RenderDevice.IsForwardPlusEnabled()) return;
+        
+        m_RenderDevice.DispatchLightCulling(m_LightCullingPipeline, view, proj);
     }
 
     void RenderSystem::BeginFrame(bool drawSkeleton) {

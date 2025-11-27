@@ -22,6 +22,13 @@ namespace Resources {
         std::vector<char> data = ResourceManager::ReadFile(m_Path);
         if (data.empty()) return false;
 
+        // For compute shaders, just store bytecode - they're created via SDL_CreateGPUComputePipeline
+        // We detect compute shaders by checking if the path contains ".comp"
+        if (m_Path.find(".comp") != std::string::npos) {
+            m_Bytecode.assign(data.begin(), data.end());
+            return true;
+        }
+
         SDL_GPUShaderCreateInfo shaderInfo = {};
         shaderInfo.code_size = data.size();
         shaderInfo.code = (const Uint8*)data.data();

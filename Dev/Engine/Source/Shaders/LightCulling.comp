@@ -1,0 +1,183 @@
+#version 450
+
+// Forward+ Light Culling Compute Shader
+// Divides the screen into tiles and determines which lights affect each tile
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// Tile size matches workgroup size
+#define TILE_SIZE 16
+#define MAX_LIGHTS_PER_TILE 256
+#define MAX_POINT_LIGHTS 1024
+
+// Point light structure
+struct PointLight {
+    vec4 positionRadius;  // xyz = position, w = radius
+    vec4 colorIntensity;  // rgb = color, w = intensity
+};
+
+// Input: Depth buffer from depth pre-pass
+layout(set = 0, binding = 0) uniform sampler2D depthTexture;
+
+// Input: Light data
+layout(std140, set = 0, binding = 1) readonly buffer LightBuffer {
+    int numLights;
+    int _pad0;
+    int _pad1;
+    int _pad2;
+    PointLight lights[MAX_POINT_LIGHTS];
+} lightBuffer;
+
+// Input: View/Projection matrices
+layout(std140, set = 0, binding = 2) uniform ViewData {
+    mat4 view;
+    mat4 proj;
+    mat4 invProj;
+    vec4 screenSize;  // xy = size, zw = 1/size
+} viewData;
+
+// Output: Per-tile light indices
+// Format: [tileIndex * (MAX_LIGHTS_PER_TILE + 1)] = count, followed by light indices
+layout(std430, set = 0, binding = 3) writeonly buffer TileLightIndices {
+    uint data[];
+} tileLightIndices;
+
+// Shared memory for tile frustum culling
+shared uint sharedLightCount;
+shared uint sharedLightIndices[MAX_LIGHTS_PER_TILE];
+shared uint sharedMinDepthBits;
+shared uint sharedMaxDepthBits;
+
+// Convert screen-space position to view-space
+vec3 screenToView(vec2 screenPos, float depth) {
+    vec2 ndc = screenPos * viewData.screenSize.zw * 2.0 - 1.0;
+    vec4 clipPos = vec4(ndc, depth, 1.0);
+    vec4 viewPos = viewData.invProj * clipPos;
+    return viewPos.xyz / viewPos.w;
+}
+
+// Create a plane from 3 points
+vec4 createPlane(vec3 p0, vec3 p1, vec3 p2) {
+    vec3 v1 = p1 - p0;
+    vec3 v2 = p2 - p0;
+    vec3 normal = normalize(cross(v1, v2));
+    float d = -dot(normal, p0);
+    return vec4(normal, d);
+}
+
+// Test if a sphere is inside or intersecting a plane
+bool sphereInsidePlane(vec3 center, float radius, vec4 plane) {
+    float dist = dot(plane.xyz, center) + plane.w;
+    return dist >= -radius;
+}
+
+void main() {
+    uvec2 tileId = gl_WorkGroupID.xy;
+    uvec2 localId = gl_LocalInvocationID.xy;
+    uint localIndex = localId.y * TILE_SIZE + localId.x;
+    
+    // Initialize shared memory
+    if (localIndex == 0) {
+        sharedLightCount = 0;
+        sharedMinDepthBits = 0xFFFFFFFFu;  // Max uint for min depth (1.0)
+        sharedMaxDepthBits = 0u;            // Min uint for max depth (0.0)
+    }
+    barrier();
+    
+    // Calculate tile bounds in screen space
+    ivec2 screenSize = ivec2(viewData.screenSize.xy);
+    ivec2 tileStart = ivec2(tileId) * TILE_SIZE;
+    ivec2 tileEnd = min(tileStart + TILE_SIZE, screenSize);
+    
+    // Sample depth and find min/max for this tile
+    ivec2 pixelPos = tileStart + ivec2(localId);
+    if (pixelPos.x < screenSize.x && pixelPos.y < screenSize.y) {
+        float depth = texelFetch(depthTexture, pixelPos, 0).r;
+        
+        // Atomic min/max for depth range using uint representation
+        // For standard depth (0=near, 1=far), we need to find min and max
+        uint depthBits = floatBitsToUint(depth);
+        atomicMin(sharedMinDepthBits, depthBits);
+        atomicMax(sharedMaxDepthBits, depthBits);
+    }
+    barrier();
+    
+    float minDepth = uintBitsToFloat(sharedMinDepthBits);
+    float maxDepth = uintBitsToFloat(sharedMaxDepthBits);
+    
+    // Convert depth to linear view-space depth
+    // For reversed-Z: near is 1, far is 0
+    // Standard: near is 0, far is 1
+    
+    // Build frustum planes for this tile in view space
+    vec3 eyePos = vec3(0.0); // Camera at origin in view space
+    
+    // Tile corners in screen space
+    vec2 tileMinScreen = vec2(tileStart);
+    vec2 tileMaxScreen = vec2(tileEnd);
+    
+    // Convert to view space at near and far planes
+    vec3 frustumCorners[4];
+    frustumCorners[0] = screenToView(vec2(tileMinScreen.x, tileMinScreen.y), minDepth);
+    frustumCorners[1] = screenToView(vec2(tileMaxScreen.x, tileMinScreen.y), minDepth);
+    frustumCorners[2] = screenToView(vec2(tileMaxScreen.x, tileMaxScreen.y), minDepth);
+    frustumCorners[3] = screenToView(vec2(tileMinScreen.x, tileMaxScreen.y), minDepth);
+    
+    // Build 4 side planes + near/far
+    vec4 frustumPlanes[6];
+    frustumPlanes[0] = createPlane(eyePos, frustumCorners[0], frustumCorners[3]); // Left
+    frustumPlanes[1] = createPlane(eyePos, frustumCorners[2], frustumCorners[1]); // Right
+    frustumPlanes[2] = createPlane(eyePos, frustumCorners[1], frustumCorners[0]); // Top
+    frustumPlanes[3] = createPlane(eyePos, frustumCorners[3], frustumCorners[2]); // Bottom
+    frustumPlanes[4] = vec4(0.0, 0.0, -1.0, -minDepth); // Near (view-space Z is negative)
+    frustumPlanes[5] = vec4(0.0, 0.0, 1.0, maxDepth);   // Far
+    
+    // Each thread tests a subset of lights
+    uint numLights = uint(lightBuffer.numLights);
+    uint lightsPerThread = (numLights + TILE_SIZE * TILE_SIZE - 1) / (TILE_SIZE * TILE_SIZE);
+    uint startLight = localIndex * lightsPerThread;
+    uint endLight = min(startLight + lightsPerThread, numLights);
+    
+    for (uint i = startLight; i < endLight; i++) {
+        PointLight light = lightBuffer.lights[i];
+        
+        // Transform light position to view space
+        vec4 lightPosWorld = vec4(light.positionRadius.xyz, 1.0);
+        vec4 lightPosView = viewData.view * lightPosWorld;
+        vec3 lightCenter = lightPosView.xyz;
+        float lightRadius = light.positionRadius.w;
+        
+        // Test against all frustum planes
+        bool inFrustum = true;
+        for (int p = 0; p < 6; p++) {
+            if (!sphereInsidePlane(lightCenter, lightRadius, frustumPlanes[p])) {
+                inFrustum = false;
+                break;
+            }
+        }
+        
+        if (inFrustum) {
+            uint index = atomicAdd(sharedLightCount, 1);
+            if (index < MAX_LIGHTS_PER_TILE) {
+                sharedLightIndices[index] = i;
+            }
+        }
+    }
+    barrier();
+    
+    // Write results to global buffer
+    uint numTilesX = (screenSize.x + TILE_SIZE - 1) / TILE_SIZE;
+    uint tileIndex = tileId.y * numTilesX + tileId.x;
+    uint tileOffset = tileIndex * (MAX_LIGHTS_PER_TILE + 1);
+    
+    // First thread writes the count
+    if (localIndex == 0) {
+        tileLightIndices.data[tileOffset] = min(sharedLightCount, MAX_LIGHTS_PER_TILE);
+    }
+    
+    // All threads help write light indices
+    uint lightCount = min(sharedLightCount, MAX_LIGHTS_PER_TILE);
+    for (uint i = localIndex; i < lightCount; i += TILE_SIZE * TILE_SIZE) {
+        tileLightIndices.data[tileOffset + 1 + i] = sharedLightIndices[i];
+    }
+}

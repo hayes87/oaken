@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SDL3/SDL.h>
+#include <glm/glm.hpp>
 
 namespace Platform {
 
@@ -12,6 +13,11 @@ namespace Platform {
         ACES = 1,
         Uncharted2 = 2
     };
+
+    // Forward+ rendering constants
+    constexpr uint32_t FORWARD_PLUS_TILE_SIZE = 16;
+    constexpr uint32_t MAX_LIGHTS_PER_TILE = 256;
+    constexpr uint32_t MAX_POINT_LIGHTS = 1024;
 
     class RenderDevice {
     public:
@@ -38,6 +44,14 @@ namespace Platform {
         uint32_t GetRenderWidth() const { return m_RenderWidth; }
         uint32_t GetRenderHeight() const { return m_RenderHeight; }
         
+        // Forward+ Pipeline
+        bool IsForwardPlusEnabled() const { return m_ForwardPlusEnabled; }
+        void SetForwardPlusEnabled(bool enabled) { m_ForwardPlusEnabled = enabled; }
+        SDL_GPUBuffer* GetTileLightIndicesBuffer() const { return m_TileLightIndicesBuffer; }
+        SDL_GPUBuffer* GetLightBuffer() const { return m_LightBuffer; }
+        uint32_t GetNumTilesX() const { return m_NumTilesX; }
+        uint32_t GetNumTilesY() const { return m_NumTilesY; }
+        
         // Tone mapping settings
         float GetExposure() const { return m_Exposure; }
         void SetExposure(float exposure) { m_Exposure = exposure; }
@@ -51,13 +65,19 @@ namespace Platform {
         
         void BeginFrame();
         bool BeginRenderPass(); // Returns true if successful (renders to HDR target if enabled)
+        bool BeginDepthPrePass(); // Depth-only pre-pass for Forward+
         void EndRenderPass();   // Ends the main render pass (so tone mapping can start a new one)
         bool BeginToneMappingPass();  // Starts render pass to swapchain for tone mapping
         void EndFrame();
+        
+        // Forward+ light culling
+        void UpdateLightBuffer(const void* lightData, uint32_t numLights);
+        void DispatchLightCulling(SDL_GPUComputePipeline* cullingPipeline, const glm::mat4& view, const glm::mat4& proj);
 
     private:
         void CreateDepthTexture(uint32_t width, uint32_t height);
         void CreateHDRTexture(uint32_t width, uint32_t height);
+        void CreateForwardPlusBuffers(uint32_t width, uint32_t height);
 
         SDL_GPUDevice* m_Device = nullptr;
         Window* m_Window = nullptr;
@@ -78,6 +98,14 @@ namespace Platform {
         float m_Exposure = 1.0f;
         float m_Gamma = 2.2f;
         ToneMapOperator m_ToneMapOperator = ToneMapOperator::ACES;
+        
+        // Forward+ settings and buffers
+        bool m_ForwardPlusEnabled = false;  // Disabled by default until fully implemented
+        SDL_GPUBuffer* m_TileLightIndicesBuffer = nullptr;
+        SDL_GPUBuffer* m_LightBuffer = nullptr;
+        uint32_t m_NumTilesX = 0;
+        uint32_t m_NumTilesY = 0;
+        uint32_t m_TileBufferSize = 0;
         
         // Frame validity
         bool m_FrameValid = false;

@@ -37,6 +37,14 @@ namespace Platform {
 
     void RenderDevice::Shutdown() {
         if (m_Device) {
+            if (m_TileLightIndicesBuffer) {
+                SDL_ReleaseGPUBuffer(m_Device, m_TileLightIndicesBuffer);
+                m_TileLightIndicesBuffer = nullptr;
+            }
+            if (m_LightBuffer) {
+                SDL_ReleaseGPUBuffer(m_Device, m_LightBuffer);
+                m_LightBuffer = nullptr;
+            }
             if (m_HDRTexture) {
                 SDL_ReleaseGPUTexture(m_Device, m_HDRTexture);
                 m_HDRTexture = nullptr;
@@ -258,6 +266,154 @@ namespace Platform {
             }
         }
         return texture;
+    }
+
+    void RenderDevice::CreateForwardPlusBuffers(uint32_t width, uint32_t height) {
+        // Calculate number of tiles
+        m_NumTilesX = (width + FORWARD_PLUS_TILE_SIZE - 1) / FORWARD_PLUS_TILE_SIZE;
+        m_NumTilesY = (height + FORWARD_PLUS_TILE_SIZE - 1) / FORWARD_PLUS_TILE_SIZE;
+        
+        // Size of tile light indices buffer:
+        // Each tile has: [count] + [MAX_LIGHTS_PER_TILE indices]
+        uint32_t newTileBufferSize = m_NumTilesX * m_NumTilesY * (MAX_LIGHTS_PER_TILE + 1) * sizeof(uint32_t);
+        
+        // Only recreate if size changed
+        if (newTileBufferSize != m_TileBufferSize) {
+            if (m_TileLightIndicesBuffer) {
+                SDL_ReleaseGPUBuffer(m_Device, m_TileLightIndicesBuffer);
+            }
+            
+            SDL_GPUBufferCreateInfo bufferInfo = {};
+            bufferInfo.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
+            bufferInfo.size = newTileBufferSize;
+            
+            m_TileLightIndicesBuffer = SDL_CreateGPUBuffer(m_Device, &bufferInfo);
+            m_TileBufferSize = newTileBufferSize;
+            
+            if (m_TileLightIndicesBuffer) {
+                std::cout << "Forward+ tile buffer created: " << m_NumTilesX << "x" << m_NumTilesY 
+                          << " tiles (" << newTileBufferSize / 1024 << " KB)" << std::endl;
+            }
+        }
+        
+        // Create light buffer if it doesn't exist
+        if (!m_LightBuffer) {
+            SDL_GPUBufferCreateInfo bufferInfo = {};
+            bufferInfo.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ;
+            // Light data: numLights (4 bytes) + padding (12 bytes) + MAX_POINT_LIGHTS * 32 bytes (2 vec4s per light)
+            bufferInfo.size = 16 + MAX_POINT_LIGHTS * 32;
+            
+            m_LightBuffer = SDL_CreateGPUBuffer(m_Device, &bufferInfo);
+            if (m_LightBuffer) {
+                std::cout << "Forward+ light buffer created: " << bufferInfo.size / 1024 << " KB" << std::endl;
+            }
+        }
+    }
+
+    bool RenderDevice::BeginDepthPrePass() {
+        if (!m_FrameValid || !m_CommandBuffer || !m_SwapchainTexture) return false;
+        
+        // Depth-only pass - no color attachment
+        SDL_GPUDepthStencilTargetInfo depthStencilInfo = {};
+        depthStencilInfo.texture = m_DepthTexture;
+        depthStencilInfo.clear_depth = 1.0f;
+        depthStencilInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+        depthStencilInfo.store_op = SDL_GPU_STOREOP_STORE;
+        depthStencilInfo.stencil_load_op = SDL_GPU_LOADOP_CLEAR;
+        depthStencilInfo.stencil_store_op = SDL_GPU_STOREOP_STORE;
+        depthStencilInfo.cycle = true;
+        
+        m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, nullptr, 0, &depthStencilInfo);
+        return m_RenderPass != nullptr;
+    }
+
+    void RenderDevice::UpdateLightBuffer(const void* lightData, uint32_t numLights) {
+        if (!m_LightBuffer || !m_CommandBuffer) return;
+        
+        // Calculate data size: header (16 bytes) + lights (32 bytes each)
+        uint32_t dataSize = 16 + numLights * 32;
+        
+        // Create transfer buffer
+        SDL_GPUTransferBufferCreateInfo transferInfo = {};
+        transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        transferInfo.size = dataSize;
+        
+        SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_Device, &transferInfo);
+        if (!transferBuffer) return;
+        
+        void* map = SDL_MapGPUTransferBuffer(m_Device, transferBuffer, false);
+        if (map) {
+            memcpy(map, lightData, dataSize);
+            SDL_UnmapGPUTransferBuffer(m_Device, transferBuffer);
+            
+            SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(m_CommandBuffer);
+            
+            SDL_GPUTransferBufferLocation source = {};
+            source.transfer_buffer = transferBuffer;
+            source.offset = 0;
+            
+            SDL_GPUBufferRegion destination = {};
+            destination.buffer = m_LightBuffer;
+            destination.offset = 0;
+            destination.size = dataSize;
+            
+            SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+            SDL_EndGPUCopyPass(copyPass);
+        }
+        
+        SDL_ReleaseGPUTransferBuffer(m_Device, transferBuffer);
+    }
+
+    void RenderDevice::DispatchLightCulling(SDL_GPUComputePipeline* cullingPipeline, const glm::mat4& view, const glm::mat4& proj) {
+        if (!m_CommandBuffer || !cullingPipeline || !m_ForwardPlusEnabled) return;
+        
+        // Ensure Forward+ buffers exist
+        CreateForwardPlusBuffers(m_RenderWidth, m_RenderHeight);
+        if (!m_TileLightIndicesBuffer || !m_LightBuffer) return;
+        
+        // Begin compute pass - bind the tile buffer as writeable
+        SDL_GPUStorageBufferReadWriteBinding tileBufferBinding = {};
+        tileBufferBinding.buffer = m_TileLightIndicesBuffer;
+        tileBufferBinding.cycle = false;
+        
+        SDL_GPUComputePass* computePass = SDL_BeginGPUComputePass(
+            m_CommandBuffer,
+            nullptr, 0,  // No storage texture bindings
+            &tileBufferBinding, 1  // Tile buffer binding
+        );
+        
+        if (!computePass) return;
+        
+        SDL_BindGPUComputePipeline(computePass, cullingPipeline);
+        
+        // Bind light buffer (read-only storage)
+        SDL_GPUBuffer* storageBuffers[] = { m_LightBuffer };
+        SDL_BindGPUComputeStorageBuffers(computePass, 0, storageBuffers, 1);
+        
+        // Push view data uniform
+        struct ViewData {
+            glm::mat4 view;
+            glm::mat4 proj;
+            glm::mat4 invProj;
+            glm::vec4 screenSize;
+        } viewData;
+        
+        viewData.view = view;
+        viewData.proj = proj;
+        viewData.invProj = glm::inverse(proj);
+        viewData.screenSize = glm::vec4(
+            static_cast<float>(m_RenderWidth),
+            static_cast<float>(m_RenderHeight),
+            1.0f / static_cast<float>(m_RenderWidth),
+            1.0f / static_cast<float>(m_RenderHeight)
+        );
+        
+        SDL_PushGPUComputeUniformData(m_CommandBuffer, 0, &viewData, sizeof(viewData));
+        
+        // Dispatch compute shader - one workgroup per tile
+        SDL_DispatchGPUCompute(computePass, m_NumTilesX, m_NumTilesY, 1);
+        
+        SDL_EndGPUComputePass(computePass);
     }
 
 }

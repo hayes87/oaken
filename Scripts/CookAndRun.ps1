@@ -13,7 +13,7 @@ New-Item -ItemType Directory -Force -Path "$CookedDir/Shaders" | Out-Null
 
 # Compile Shaders
 Write-Host "Compiling Shaders..."
-$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "MeshInstanced.vert", "MeshInstanced.frag", "Line.vert", "Line.frag", "Fullscreen.vert", "ToneMapping.frag")
+$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "MeshInstanced.vert", "MeshInstanced.frag", "Line.vert", "Line.frag", "Fullscreen.vert", "ToneMapping.frag", "DepthOnly.vert", "DepthOnly.frag", "LightCulling.comp")
 
 # Ensure shader directories exist
 New-Item -ItemType Directory -Force -Path "$CookedDir/Shaders" | Out-Null

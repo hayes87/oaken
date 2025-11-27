@@ -2,6 +2,7 @@
 
 #include "ResourceManager.h"
 #include <SDL3/SDL.h>
+#include <vector>
 
 namespace Resources {
 
@@ -15,6 +16,11 @@ namespace Resources {
 
         SDL_GPUShader* GetShader() const { return m_Shader; }
         SDL_GPUShaderStage GetStage() const { return m_Stage; }
+        
+        // For compute shaders - access raw bytecode
+        const uint8_t* GetBytecode() const { return m_Bytecode.data(); }
+        size_t GetBytecodeSize() const { return m_Bytecode.size(); }
+        bool IsCompute() const { return !m_Bytecode.empty(); }
 
     private:
         SDL_GPUDevice* m_Device;
@@ -25,6 +31,9 @@ namespace Resources {
         uint32_t m_NumStorageTextures;
         uint32_t m_NumStorageBuffers;
         uint32_t m_NumUniformBuffers;
+        
+        // Store bytecode for compute shaders (needed for pipeline creation)
+        std::vector<uint8_t> m_Bytecode;
     };
 
 }
