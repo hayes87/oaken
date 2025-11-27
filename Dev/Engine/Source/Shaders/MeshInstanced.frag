@@ -7,12 +7,14 @@ layout(location = 3) in vec4 inColor;
 
 layout(location = 0) out vec4 outColor;
 
-// Maximum number of point lights
+// Maximum number of point lights (for non-Forward+ path)
 #define MAX_POINT_LIGHTS 8
 
+// SDL_GPU Fragment Shader Layout (SPIR-V):
+// Set 2: Sampled textures, read-only storage textures, read-only storage buffers
+// Set 3: Uniform buffers
+
 // Light uniforms - MUST match C++ LightUBO struct layout exactly!
-// SDL_GPU with slot 0 in SDL_PushGPUFragmentUniformData maps to binding 0
-// Since vertex shader uses bindings 0 and 1, we use set 3 (fragment-only set)
 layout(std140, set = 3, binding = 0) uniform LightUniforms {
     // Directional light
     vec4 dirLightDir;       // xyz = direction, w = intensity
@@ -22,7 +24,7 @@ layout(std140, set = 3, binding = 0) uniform LightUniforms {
     // Camera position for specular
     vec4 cameraPos;         // xyz = position, w = unused
     
-    // Point lights
+    // Point lights (for non-Forward+ path)
     vec4 pointLightPos[MAX_POINT_LIGHTS];       // xyz = position, w = radius
     vec4 pointLightColor[MAX_POINT_LIGHTS];     // rgb = color, a = intensity
     
@@ -87,7 +89,7 @@ void main() {
     // Directional light
     vec3 lighting = calculateDirectionalLight(normal, viewDir);
     
-    // Point lights
+    // Point lights (non-Forward+ path using uniforms)
     for (int i = 0; i < lights.numPointLights && i < MAX_POINT_LIGHTS; ++i) {
         lighting += calculatePointLight(i, normal, inWorldPos, viewDir);
     }

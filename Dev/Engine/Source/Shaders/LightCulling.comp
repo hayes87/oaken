@@ -16,11 +16,16 @@ struct PointLight {
     vec4 colorIntensity;  // rgb = color, w = intensity
 };
 
-// Input: Depth buffer from depth pre-pass
+// SDL_GPU Compute Shader Layout (SPIR-V):
+// Set 0: Sampled textures, read-only storage textures, read-only storage buffers
+// Set 1: Read-write storage textures, read-write storage buffers  
+// Set 2: Uniform buffers
+
+// Input: Depth buffer from depth pre-pass (sampled texture)
 layout(set = 0, binding = 0) uniform sampler2D depthTexture;
 
-// Input: Light data
-layout(std140, set = 0, binding = 1) readonly buffer LightBuffer {
+// Input: Light data (read-only storage buffer)
+layout(std430, set = 0, binding = 1) readonly buffer LightBuffer {
     int numLights;
     int _pad0;
     int _pad1;
@@ -28,19 +33,19 @@ layout(std140, set = 0, binding = 1) readonly buffer LightBuffer {
     PointLight lights[MAX_POINT_LIGHTS];
 } lightBuffer;
 
-// Input: View/Projection matrices
-layout(std140, set = 0, binding = 2) uniform ViewData {
+// Output: Per-tile light indices (read-write storage buffer)
+// Format: [tileIndex * (MAX_LIGHTS_PER_TILE + 1)] = count, followed by light indices
+layout(std430, set = 1, binding = 0) writeonly buffer TileLightIndices {
+    uint data[];
+} tileLightIndices;
+
+// Input: View/Projection matrices (uniform buffer)
+layout(std140, set = 2, binding = 0) uniform ViewData {
     mat4 view;
     mat4 proj;
     mat4 invProj;
     vec4 screenSize;  // xy = size, zw = 1/size
 } viewData;
-
-// Output: Per-tile light indices
-// Format: [tileIndex * (MAX_LIGHTS_PER_TILE + 1)] = count, followed by light indices
-layout(std430, set = 0, binding = 3) writeonly buffer TileLightIndices {
-    uint data[];
-} tileLightIndices;
 
 // Shared memory for tile frustum culling
 shared uint sharedLightCount;

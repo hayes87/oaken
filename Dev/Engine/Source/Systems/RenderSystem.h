@@ -113,8 +113,13 @@ namespace Systems {
         
         // Forward+ pipelines
         SDL_GPUGraphicsPipeline* m_DepthOnlyPipeline = nullptr;
+        SDL_GPUGraphicsPipeline* m_ForwardPlusPipeline = nullptr;  // Forward+ instanced mesh pipeline
         SDL_GPUComputePipeline* m_LightCullingPipeline = nullptr;
         SDL_GPUSampler* m_DepthSampler = nullptr;  // For sampling depth in compute
+        
+        // Forward+ rendering method
+        void CreateForwardPlusPipeline();
+        void RenderBatchesForwardPlus(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj);
     };
 
 }

@@ -1,0 +1,138 @@
+#version 450
+
+layout(location = 0) in vec2 inUV;
+layout(location = 1) in vec3 inWorldNormal;
+layout(location = 2) in vec3 inWorldPos;
+layout(location = 3) in vec4 inColor;
+
+layout(location = 0) out vec4 outColor;
+
+// Forward+ constants
+#define TILE_SIZE 16
+#define MAX_LIGHTS_PER_TILE 256
+#define MAX_POINT_LIGHTS 1024
+
+// SDL_GPU Fragment Shader Layout (SPIR-V):
+// Set 2: Sampled textures, read-only storage textures, read-only storage buffers
+// Set 3: Uniform buffers
+
+// Point light structure (matches LightCulling.comp)
+struct PointLight {
+    vec4 positionRadius;  // xyz = position, w = radius
+    vec4 colorIntensity;  // rgb = color, w = intensity
+};
+
+// Light buffer (read-only storage buffer at set 2, binding 0)
+layout(std430, set = 2, binding = 0) readonly buffer LightBuffer {
+    int numLights;
+    int _pad0;
+    int _pad1;
+    int _pad2;
+    PointLight lights[];
+} lightBuffer;
+
+// Tile light indices (read-only storage buffer at set 2, binding 1)
+layout(std430, set = 2, binding = 1) readonly buffer TileLightIndices {
+    uint data[];
+} tileLightIndices;
+
+// Light uniforms - for directional light, ambient, camera, and screen info
+layout(std140, set = 3, binding = 0) uniform LightUniforms {
+    // Directional light
+    vec4 dirLightDir;       // xyz = direction, w = intensity
+    vec4 dirLightColor;     // rgb = color, a = unused
+    vec4 ambientColor;      // rgb = ambient, a = unused
+    
+    // Camera position for specular
+    vec4 cameraPos;         // xyz = position, w = unused
+    
+    // Screen info for Forward+
+    vec4 screenSize;        // xy = size, zw = 1/size
+    
+    float shininess;
+    float _pad1;
+    float _pad2;
+    float _pad3;
+} uniforms;
+
+// Material properties (could be per-instance later)
+const vec3 materialDiffuse = vec3(0.8);
+const vec3 materialSpecular = vec3(0.5);
+
+vec3 calculateDirectionalLight(vec3 normal, vec3 viewDir) {
+    vec3 lightDir = normalize(-uniforms.dirLightDir.xyz);
+    float intensity = uniforms.dirLightDir.w;
+    
+    // Diffuse (Lambert)
+    float diff = max(dot(normal, lightDir), 0.0);
+    vec3 diffuse = diff * uniforms.dirLightColor.rgb * materialDiffuse * intensity;
+    
+    // Specular (Blinn-Phong)
+    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfwayDir), 0.0), uniforms.shininess);
+    vec3 specular = spec * uniforms.dirLightColor.rgb * materialSpecular * intensity;
+    
+    return diffuse + specular;
+}
+
+vec3 calculatePointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir) {
+    vec3 lightPos = light.positionRadius.xyz;
+    float radius = light.positionRadius.w;
+    vec3 lightColor = light.colorIntensity.rgb;
+    float intensity = light.colorIntensity.w;
+    
+    vec3 lightDir = lightPos - fragPos;
+    float distance = length(lightDir);
+    lightDir = normalize(lightDir);
+    
+    // Attenuation (smooth falloff)
+    float attenuation = 1.0 - smoothstep(0.0, radius, distance);
+    attenuation *= attenuation; // Quadratic falloff
+    
+    // Diffuse
+    float diff = max(dot(normal, lightDir), 0.0);
+    vec3 diffuse = diff * lightColor * materialDiffuse * intensity * attenuation;
+    
+    // Specular
+    vec3 halfwayDir = normalize(lightDir + viewDir);
+    float spec = pow(max(dot(normal, halfwayDir), 0.0), uniforms.shininess);
+    vec3 specular = spec * lightColor * materialSpecular * intensity * attenuation;
+    
+    return diffuse + specular;
+}
+
+void main() {
+    vec3 normal = normalize(inWorldNormal);
+    vec3 viewDir = normalize(uniforms.cameraPos.xyz - inWorldPos);
+    
+    // Ambient
+    vec3 ambient = uniforms.ambientColor.rgb * materialDiffuse;
+    
+    // Directional light
+    vec3 lighting = calculateDirectionalLight(normal, viewDir);
+    
+    // Forward+ path: read lights from tile buffer
+    ivec2 screenPos = ivec2(gl_FragCoord.xy);
+    ivec2 tileId = screenPos / TILE_SIZE;
+    uint numTilesX = uint((uniforms.screenSize.x + float(TILE_SIZE) - 1.0) / float(TILE_SIZE));
+    uint tileIndex = uint(tileId.y) * numTilesX + uint(tileId.x);
+    uint tileOffset = tileIndex * (MAX_LIGHTS_PER_TILE + 1);
+    
+    uint lightCount = tileLightIndices.data[tileOffset];
+    lightCount = min(lightCount, MAX_LIGHTS_PER_TILE);
+    
+    for (uint i = 0; i < lightCount; i++) {
+        uint lightIndex = tileLightIndices.data[tileOffset + 1 + i];
+        if (lightIndex < uint(lightBuffer.numLights)) {
+            lighting += calculatePointLight(lightBuffer.lights[lightIndex], normal, inWorldPos, viewDir);
+        }
+    }
+    
+    vec3 finalColor = ambient + lighting;
+    
+    // Apply instance color as a tint
+    finalColor *= inColor.rgb;
+    
+    // Output HDR color (tone mapping and gamma done in post-process)
+    outColor = vec4(finalColor, inColor.a);
+}

@@ -26,6 +26,9 @@ namespace Systems {
         if (m_InstancedMeshPipeline) {
             SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_InstancedMeshPipeline);
         }
+        if (m_ForwardPlusPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_ForwardPlusPipeline);
+        }
         if (m_LinePipeline) {
             SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_LinePipeline);
         }
@@ -54,6 +57,7 @@ namespace Systems {
         CreateToneMappingPipeline();
         CreateDepthOnlyPipeline();
         CreateLightCullingPipeline();
+        CreateForwardPlusPipeline();
         
         // Nearest neighbor sampler (for sprites/pixel art)
         SDL_GPUSamplerCreateInfo samplerInfo = {};
@@ -553,9 +557,9 @@ namespace Systems {
         }
         
         // Depth-only vertex shader: same as instanced mesh but only writes depth
-        // 1 uniform buffer (ViewProjection at binding 0)
+        // 1 uniform buffer (ViewProjection at set 1, binding 0)
         auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
-        // Empty fragment shader
+        // Empty fragment shader (no resources)
         auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
         
         if (!vertShader || !fragShader) {
@@ -564,56 +568,88 @@ namespace Systems {
         }
         
         // Same vertex layout as instanced mesh shader
-        SDL_GPUVertexBufferDescription vertexBufferDesc[2] = {};
+        SDL_GPUVertexBufferDescription vertexBufferDescs[2] = {};
         
-        // Buffer 0: Mesh vertices
-        vertexBufferDesc[0].slot = 0;
-        vertexBufferDesc[0].pitch = sizeof(float) * 8;  // pos(3) + normal(3) + uv(2)
-        vertexBufferDesc[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
-        vertexBufferDesc[0].instance_step_rate = 0;
+        // Buffer 0: Mesh vertex data (per-vertex) - must match Resources::Vertex
+        vertexBufferDescs[0].slot = 0;
+        vertexBufferDescs[0].pitch = sizeof(Resources::Vertex);
+        vertexBufferDescs[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDescs[0].instance_step_rate = 0;
         
-        // Buffer 1: Instance data (mat4 model + vec4 color)
-        vertexBufferDesc[1].slot = 1;
-        vertexBufferDesc[1].pitch = sizeof(float) * 20;  // mat4(16) + vec4(4)
-        vertexBufferDesc[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
-        vertexBufferDesc[1].instance_step_rate = 0;  // Must be 0 per SDL_GPU spec
+        // Buffer 1: Instance data (per-instance) - mat4 + vec4 = 80 bytes
+        vertexBufferDescs[1].slot = 1;
+        vertexBufferDescs[1].pitch = sizeof(MeshInstance);
+        vertexBufferDescs[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+        vertexBufferDescs[1].instance_step_rate = 0;  // Must be 0 per SDL_GPU spec
         
-        SDL_GPUVertexAttribute vertexAttributes[8] = {};
+        SDL_GPUVertexAttribute vertexAttributes[10] = {};
+        
+        // Per-vertex attributes (from buffer 0)
         // Position
         vertexAttributes[0].location = 0;
         vertexAttributes[0].buffer_slot = 0;
         vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
-        vertexAttributes[0].offset = 0;
+        vertexAttributes[0].offset = offsetof(Resources::Vertex, position);
+        
         // Normal
         vertexAttributes[1].location = 1;
         vertexAttributes[1].buffer_slot = 0;
         vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
-        vertexAttributes[1].offset = sizeof(float) * 3;
+        vertexAttributes[1].offset = offsetof(Resources::Vertex, normal);
+
         // UV
         vertexAttributes[2].location = 2;
         vertexAttributes[2].buffer_slot = 0;
         vertexAttributes[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
-        vertexAttributes[2].offset = sizeof(float) * 6;
-        // Instance model matrix (4 vec4s at locations 3-6)
-        for (int i = 0; i < 4; i++) {
-            vertexAttributes[3 + i].location = 3 + i;
-            vertexAttributes[3 + i].buffer_slot = 1;
-            vertexAttributes[3 + i].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
-            vertexAttributes[3 + i].offset = sizeof(float) * 4 * i;
-        }
-        // Instance color
+        vertexAttributes[2].offset = offsetof(Resources::Vertex, uv);
+
+        // Weights (unused for depth pass but shader expects it)
+        vertexAttributes[3].location = 3;
+        vertexAttributes[3].buffer_slot = 0;
+        vertexAttributes[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[3].offset = offsetof(Resources::Vertex, weights);
+
+        // Joints (unused for depth pass but shader expects it)
+        vertexAttributes[4].location = 4;
+        vertexAttributes[4].buffer_slot = 0;
+        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[4].offset = offsetof(Resources::Vertex, joints);
+
+        // Per-instance attributes (from buffer 1)
+        // Model matrix (mat4 = 4 x vec4, locations 5-8)
+        vertexAttributes[5].location = 5;
+        vertexAttributes[5].buffer_slot = 1;
+        vertexAttributes[5].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[5].offset = 0;  // Column 0
+
+        vertexAttributes[6].location = 6;
+        vertexAttributes[6].buffer_slot = 1;
+        vertexAttributes[6].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[6].offset = 16;  // Column 1
+
         vertexAttributes[7].location = 7;
         vertexAttributes[7].buffer_slot = 1;
         vertexAttributes[7].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
-        vertexAttributes[7].offset = sizeof(float) * 16;
+        vertexAttributes[7].offset = 32;  // Column 2
+
+        vertexAttributes[8].location = 8;
+        vertexAttributes[8].buffer_slot = 1;
+        vertexAttributes[8].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[8].offset = 48;  // Column 3
+
+        // Instance color (location 9)
+        vertexAttributes[9].location = 9;
+        vertexAttributes[9].buffer_slot = 1;
+        vertexAttributes[9].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[9].offset = 64;  // After mat4
         
         SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
         pipelineInfo.vertex_shader = vertShader->GetShader();
         pipelineInfo.fragment_shader = fragShader->GetShader();
         
         pipelineInfo.vertex_input_state.num_vertex_buffers = 2;
-        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDesc;
-        pipelineInfo.vertex_input_state.num_vertex_attributes = 8;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDescs;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 10;
         pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
         
         pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
@@ -692,6 +728,122 @@ namespace Systems {
             samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
             
             m_DepthSampler = SDL_CreateGPUSampler(device, &samplerInfo);
+        }
+    }
+
+    void RenderSystem::CreateForwardPlusPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string vertPath, fragPath;
+
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/MeshInstanced.vert.dxil";
+            fragPath = "Assets/Shaders/MeshInstancedForwardPlus.frag.dxil";
+        } else {
+            vertPath = "Assets/Shaders/MeshInstanced.vert.spv";
+            fragPath = "Assets/Shaders/MeshInstancedForwardPlus.frag.spv";
+        }
+
+        // Vertex Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (ViewProj)
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
+        // Fragment Shader: 0 Samplers, 0 Storage Textures, 2 Storage Buffers (lights + tile indices), 1 Uniform Buffer
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 2, 1);
+
+        if (!vertShader || !fragShader) {
+            LOG_CORE_WARN("Failed to load Forward+ shaders - Forward+ rendering will be unavailable");
+            return;
+        }
+
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        // Same vertex layout as instanced mesh pipeline
+        SDL_GPUVertexBufferDescription vertexBufferDescs[2] = {};
+        
+        vertexBufferDescs[0].slot = 0;
+        vertexBufferDescs[0].pitch = sizeof(Resources::Vertex);
+        vertexBufferDescs[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDescs[0].instance_step_rate = 0;
+        
+        vertexBufferDescs[1].slot = 1;
+        vertexBufferDescs[1].pitch = sizeof(MeshInstance);
+        vertexBufferDescs[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+        vertexBufferDescs[1].instance_step_rate = 0;
+
+        SDL_GPUVertexAttribute vertexAttributes[10];
+        
+        // Position
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].buffer_slot = 0;
+        vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[0].offset = offsetof(Resources::Vertex, position);
+        
+        // Normal
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].buffer_slot = 0;
+        vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[1].offset = offsetof(Resources::Vertex, normal);
+
+        // UV
+        vertexAttributes[2].location = 2;
+        vertexAttributes[2].buffer_slot = 0;
+        vertexAttributes[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        vertexAttributes[2].offset = offsetof(Resources::Vertex, uv);
+
+        // Weights
+        vertexAttributes[3].location = 3;
+        vertexAttributes[3].buffer_slot = 0;
+        vertexAttributes[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[3].offset = offsetof(Resources::Vertex, weights);
+
+        // Joints
+        vertexAttributes[4].location = 4;
+        vertexAttributes[4].buffer_slot = 0;
+        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[4].offset = offsetof(Resources::Vertex, joints);
+
+        // Model matrix (4 x vec4)
+        for (int i = 0; i < 4; i++) {
+            vertexAttributes[5 + i].location = 5 + i;
+            vertexAttributes[5 + i].buffer_slot = 1;
+            vertexAttributes[5 + i].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+            vertexAttributes[5 + i].offset = i * 16;
+        }
+
+        // Instance color
+        vertexAttributes[9].location = 9;
+        vertexAttributes[9].buffer_slot = 1;
+        vertexAttributes[9].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[9].offset = 64;
+
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 2;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDescs;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 10;
+        pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
+
+        // Color Target - HDR format
+        SDL_GPUColorTargetDescription colorTargetDesc = {};
+        colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+        colorTargetDesc.blend_state.enable_blend = false;
+
+        pipelineInfo.target_info.num_color_targets = 1;
+        pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+        
+        // Depth Stencil
+        pipelineInfo.depth_stencil_state.enable_depth_test = true;
+        pipelineInfo.depth_stencil_state.enable_depth_write = true;
+        pipelineInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        
+        pipelineInfo.target_info.has_depth_stencil_target = true;
+        pipelineInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
+
+        m_ForwardPlusPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_ForwardPlusPipeline) {
+            LOG_CORE_WARN("Failed to create Forward+ pipeline: {}", SDL_GetError());
+        } else {
+            LOG_CORE_INFO("Forward+ Pipeline Created Successfully!");
         }
     }
 
