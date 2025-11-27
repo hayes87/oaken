@@ -95,11 +95,6 @@
 - [ ] **SpriteBatch**:
     - [ ] Implement `SpriteBatch` to group 2D draw calls (UI/Sprites).
     - [ ] Optimize `RenderSystem` to use a single vertex buffer for multiple sprites.
-- [ ] **Material System**:
-    - [ ] Shader reflection to generate UI for material properties.
-- [ ] **Lighting**:
-    - [ ] Directional, Point, and Spot lights.
-    - [ ] PBR (Physically Based Rendering) pipeline.
 
 ## Phase 6: Editor & Tools
 - [ ] **Entity Inspector**:
@@ -111,21 +106,91 @@
     - [ ] Drag-and-drop assets into the scene.
 - [ ] **Gizmos**:
     - [ ] Visual tools to move/rotate/scale entities in the viewport (using `ImGuizmo`).
-
-## Phase 6: Scene Management
-- [ ] **Serialization**:
+- [ ] **Scene Management**:
     - [ ] Save ECS World to JSON/Binary (Scene files).
     - [ ] Load Scene files on startup.
-- [ ] **Scene Graph**:
     - [ ] Parent/Child relationships in ECS (Flecs supports this natively).
-    - [ ] Transform propagation (Parent moves -> Child moves).
 
-## Phase 7: Rendering (Advanced)
-- [ ] **Material System**:
-    - [ ] Shader reflection to generate UI for material properties.
-- [ ] **Lighting**:
-    - [ ] Directional, Point, and Spot lights.
-    - [ ] PBR (Physically Based Rendering) pipeline.
-- [ ] **Post Processing**:
-    - [ ] Bloom, Tone Mapping, Color Correction.
+## Phase 7: Advanced Rendering (PBR & Clustered Forward)
+
+### Core Rendering Architecture
+- [ ] **Clustered Forward Renderer**:
+    - [ ] Implement 3D cluster grid (frustum subdivision).
+    - [ ] Compute shader for light assignment to clusters.
+    - [ ] Per-cluster light list lookup in forward pass.
+    - [ ] Light culling optimization via compute shaders.
+- [ ] **HDR Pipeline**:
+    - [ ] HDR render targets (RGBA16F/RGBA32F).
+    - [ ] Linear lighting workflow.
+    - [ ] Exposure-based tone mapping (Reinhard, ACES, Uncharted2).
+    - [ ] Gamma correction output.
+
+### Physically Based Rendering (PBR)
+- [ ] **Metallic Workflow**:
+    - [ ] Albedo, Metallic, Roughness texture maps.
+    - [ ] Cook-Torrance specular BRDF.
+    - [ ] Lambert diffuse BRDF.
+    - [ ] Fresnel-Schlick approximation.
+    - [ ] GGX/Trowbridge-Reitz normal distribution.
+    - [ ] Smith geometry function.
+- [ ] **Material Maps**:
+    - [ ] Tangent space normal mapping.
+    - [ ] Ambient occlusion mapping.
+    - [ ] Emissive mapping.
+    - [ ] Height/parallax mapping (optional).
+- [ ] **Image Based Lighting (IBL)**:
+    - [ ] HDR environment map loading (.hdr/.exr).
+    - [ ] Diffuse irradiance cubemap (prefiltered).
+    - [ ] Specular pre-filtered environment map (mip chain).
+    - [ ] BRDF integration LUT.
+    - [ ] Environment map sampling in shader.
+
+### Skybox & Environment
+- [ ] **Skybox Rendering**:
+    - [ ] HDR skybox support.
+    - [ ] LDR skybox fallback.
+    - [ ] Procedural sky (optional).
+- [ ] **Environment Probes**:
+    - [ ] Reflection probes for local IBL.
+    - [ ] Probe blending between regions.
+
+### Lighting & Shadows
+- [ ] **Light Sources**:
+    - [ ] Directional lights with cascade shadow mapping (CSM).
+    - [ ] Point lights with omnidirectional shadow mapping (cubemap).
+    - [ ] Spot lights with perspective shadow mapping.
+    - [ ] Light attenuation (inverse square falloff).
+- [ ] **Shadow Mapping**:
+    - [ ] Directional light dynamic shadows.
+    - [ ] Static omnidirectional shadows for point lights.
+    - [ ] PCF soft shadows.
+    - [ ] Shadow bias and normal offset.
+    - [ ] Cascaded Shadow Maps for large outdoor scenes.
+
+### Post-Processing
+- [ ] **Bloom**:
+    - [ ] Brightness threshold extraction.
+    - [ ] Gaussian blur (separable, multi-pass).
+    - [ ] Additive blend with scene.
+- [ ] **Anti-Aliasing**:
+    - [ ] Multisample Anti-aliasing (MSAA).
+    - [ ] FXAA fallback (optional).
+- [ ] **Other Effects**:
+    - [ ] Depth of Field (optional).
+    - [ ] Screen-space reflections (SSR, optional).
+    - [ ] Ambient Occlusion (SSAO/HBAO, optional).
+
+### Special Rendering
+- [ ] **Alpha Testing**:
+    - [ ] Alpha-tested foliage rendering.
+    - [ ] Alpha-to-coverage for MSAA compatibility.
+    - [ ] Two-sided rendering for vegetation.
+- [ ] **Transparency**:
+    - [ ] Order-independent transparency (optional).
+    - [ ] Alpha blending with depth sorting.
+
+### Alternative Renderers (Future/Branches)
+- [ ] **Tiled Forward Rendering**: Light culling per screen tile.
+- [ ] **Deferred Rendering**: G-buffer based lighting.
+- [ ] **Forward+ (Tiled Deferred Hybrid)**: Best of both approaches.
 
