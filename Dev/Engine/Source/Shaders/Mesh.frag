@@ -93,11 +93,6 @@ void main() {
     
     vec3 finalColor = ambient + lighting;
     
-    // Tone mapping (simple Reinhard)
-    finalColor = finalColor / (finalColor + vec3(1.0));
-    
-    // Gamma correction
-    finalColor = pow(finalColor, vec3(1.0 / 2.2));
-    
+    // Output HDR color (tone mapping and gamma done in post-process)
     outColor = vec4(finalColor, 1.0);
 }

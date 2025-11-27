@@ -405,16 +405,16 @@ GAME_EXPORT void GameInit(Engine& engine) {
             });
         LOG_INFO("Created Sun directional light");
         
-        // Add a point light for extra illumination
-        engine.GetContext().World->entity("PointLight1")
-            .set<LocalTransform>({ {2.0f, 2.0f, 2.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
-            .set<PointLight>({
-                {0.8f, 0.6f, 1.0f},    // purple-ish color
-                2.0f,                   // intensity
-                8.0f,                   // radius
-                2.0f                    // falloff
-            });
-        LOG_INFO("Created PointLight1");
+        // // Add a point light for extra illumination
+        // engine.GetContext().World->entity("PointLight1")
+        //     .set<LocalTransform>({ {2.0f, 2.0f, 2.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+        //     .set<PointLight>({
+        //         {1.0f, 0.95f, 0.9f},   // warm white color
+        //         2.0f,                   // intensity
+        //         8.0f,                   // radius
+        //         2.0f                    // falloff
+        //     });
+        // LOG_INFO("Created PointLight1");
     }
 
     // Create a test entity with AttributeSet if it doesn't exist

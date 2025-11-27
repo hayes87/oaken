@@ -314,7 +314,7 @@ void Engine::RenderDebugMenu() {
     if (!m_ShowDebugMenu) return;
     
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
     
     if (ImGui::Begin("Debug Menu (F11)", &m_ShowDebugMenu)) {
         // FPS display
@@ -337,6 +337,35 @@ void Engine::RenderDebugMenu() {
             ImGui::Checkbox("Show FPS", &m_ShowFPS);
             ImGui::Checkbox("Show Colliders (F1)", &m_ShowColliders);
             ImGui::Checkbox("Show Skeleton (F2)", &m_ShowSkeleton);
+        }
+        
+        // HDR / Tone Mapping options
+        if (ImGui::CollapsingHeader("HDR & Tone Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool hdrEnabled = m_RenderDevice->IsHDREnabled();
+            if (ImGui::Checkbox("HDR Enabled", &hdrEnabled)) {
+                // Note: Changing HDR at runtime requires pipeline recreation, so this is read-only for now
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("HDR is configured at startup. Restart to change.");
+            }
+            
+            float exposure = m_RenderDevice->GetExposure();
+            if (ImGui::SliderFloat("Exposure", &exposure, 0.1f, 10.0f, "%.2f")) {
+                m_RenderDevice->SetExposure(exposure);
+            }
+            
+            float gamma = m_RenderDevice->GetGamma();
+            if (ImGui::SliderFloat("Gamma", &gamma, 1.0f, 3.0f, "%.2f")) {
+                m_RenderDevice->SetGamma(gamma);
+            }
+            
+            const char* tonemapNames[] = { "Reinhard", "ACES", "Uncharted 2" };
+            int currentTonemap = static_cast<int>(m_RenderDevice->GetToneMapOperator());
+            if (ImGui::Combo("Tone Map", &currentTonemap, tonemapNames, 3)) {
+                m_RenderDevice->SetToneMapOperator(static_cast<Platform::ToneMapOperator>(currentTonemap));
+            }
         }
         
         // Engine info

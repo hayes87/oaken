@@ -37,6 +37,10 @@ namespace Platform {
 
     void RenderDevice::Shutdown() {
         if (m_Device) {
+            if (m_HDRTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_HDRTexture);
+                m_HDRTexture = nullptr;
+            }
             if (m_DepthTexture) {
                 SDL_ReleaseGPUTexture(m_Device, m_DepthTexture);
                 m_DepthTexture = nullptr;
@@ -67,14 +71,39 @@ namespace Platform {
         m_DepthTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
     }
 
+    void RenderDevice::CreateHDRTexture(uint32_t width, uint32_t height) {
+        if (m_HDRTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_HDRTexture);
+        }
+
+        SDL_GPUTextureCreateInfo createInfo = {};
+        createInfo.type = SDL_GPU_TEXTURETYPE_2D;
+        createInfo.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;  // Render target + sampler for tone mapping
+        createInfo.width = width;
+        createInfo.height = height;
+        createInfo.layer_count_or_depth = 1;
+        createInfo.num_levels = 1;
+        createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+
+        m_HDRTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        if (m_HDRTexture) {
+            std::cout << "HDR Texture created: " << width << "x" << height << " (RGBA16F)" << std::endl;
+        }
+    }
+
     void RenderDevice::BeginFrame() {
+        m_FrameValid = false;  // Reset at start of frame
+        
         m_CommandBuffer = SDL_AcquireGPUCommandBuffer(m_Device);
         if (!m_CommandBuffer) {
+            std::cerr << "BeginFrame: Failed to acquire command buffer!" << std::endl;
             return;
         }
 
         uint32_t w, h;
         if (!SDL_AcquireGPUSwapchainTexture(m_CommandBuffer, m_Window->GetNativeWindow(), &m_SwapchainTexture, &w, &h)) {
+            std::cerr << "BeginFrame: Failed to acquire swapchain texture: " << SDL_GetError() << std::endl;
             return;
         }
 
@@ -83,6 +112,11 @@ namespace Platform {
             m_SwapchainTexture = nullptr;
             return;
         }
+        
+        m_FrameValid = true;  // Frame is valid - we have a swapchain
+
+        m_RenderWidth = w;
+        m_RenderHeight = h;
 
         // Recreate depth texture if size changed or doesn't exist
         if (!m_DepthTexture || w != m_DepthWidth || h != m_DepthHeight) {
@@ -90,28 +124,61 @@ namespace Platform {
             m_DepthWidth = w;
             m_DepthHeight = h;
         }
+
+        // Recreate HDR texture if size changed or doesn't exist (only if HDR enabled)
+        if (m_HDREnabled && (!m_HDRTexture || w != m_HDRWidth || h != m_HDRHeight)) {
+            CreateHDRTexture(w, h);
+            m_HDRWidth = w;
+            m_HDRHeight = h;
+        }
     }
 
     bool RenderDevice::BeginRenderPass() {
-        if (!m_CommandBuffer || !m_SwapchainTexture) return false;
+        if (!m_FrameValid || !m_CommandBuffer || !m_SwapchainTexture) return false;
 
-        if (m_SwapchainTexture) {
-            SDL_GPUColorTargetInfo colorTargetInfo = {};
-            colorTargetInfo.texture = m_SwapchainTexture;
-            colorTargetInfo.clear_color = { 0.39f, 0.58f, 0.93f, 1.0f }; // Cornflower Blue
-            colorTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
-            colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_GPUTexture* colorTarget = m_HDREnabled && m_HDRTexture ? m_HDRTexture : m_SwapchainTexture;
 
-            SDL_GPUDepthStencilTargetInfo depthStencilInfo = {};
-            depthStencilInfo.texture = m_DepthTexture;
-            depthStencilInfo.clear_depth = 1.0f;
-            depthStencilInfo.load_op = SDL_GPU_LOADOP_CLEAR;
-            depthStencilInfo.store_op = SDL_GPU_STOREOP_STORE;
-            depthStencilInfo.stencil_load_op = SDL_GPU_LOADOP_CLEAR;
-            depthStencilInfo.stencil_store_op = SDL_GPU_STOREOP_STORE;
-            depthStencilInfo.cycle = true; // Important if we reuse the texture
+        SDL_GPUColorTargetInfo colorTargetInfo = {};
+        colorTargetInfo.texture = colorTarget;
+        colorTargetInfo.clear_color = { 0.0f, 0.0f, 0.0f, 1.0f }; // Black for HDR (will be tonemapped)
+        colorTargetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+        colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
 
-            m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, &colorTargetInfo, 1, &depthStencilInfo);
+        SDL_GPUDepthStencilTargetInfo depthStencilInfo = {};
+        depthStencilInfo.texture = m_DepthTexture;
+        depthStencilInfo.clear_depth = 1.0f;
+        depthStencilInfo.load_op = SDL_GPU_LOADOP_CLEAR;
+        depthStencilInfo.store_op = SDL_GPU_STOREOP_STORE;
+        depthStencilInfo.stencil_load_op = SDL_GPU_LOADOP_CLEAR;
+        depthStencilInfo.stencil_store_op = SDL_GPU_STOREOP_STORE;
+        depthStencilInfo.cycle = true; // Important if we reuse the texture
+
+        m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, &colorTargetInfo, 1, &depthStencilInfo);
+        return m_RenderPass != nullptr;
+    }
+
+    void RenderDevice::EndRenderPass() {
+        if (m_RenderPass) {
+            SDL_EndGPURenderPass(m_RenderPass);
+            m_RenderPass = nullptr;
+        }
+    }
+
+    bool RenderDevice::BeginToneMappingPass() {
+        if (!m_FrameValid || !m_CommandBuffer || !m_SwapchainTexture) {
+            return false;
+        }
+        
+        // This pass renders to the swapchain (no depth needed)
+        SDL_GPUColorTargetInfo colorTargetInfo = {};
+        colorTargetInfo.texture = m_SwapchainTexture;
+        colorTargetInfo.clear_color = { 0.0f, 0.0f, 0.0f, 1.0f };
+        colorTargetInfo.load_op = SDL_GPU_LOADOP_DONT_CARE;  // We're overwriting everything
+        colorTargetInfo.store_op = SDL_GPU_STOREOP_STORE;
+        
+        m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, &colorTargetInfo, 1, nullptr);
+        if (!m_RenderPass) {
+            std::cerr << "BeginToneMappingPass: SDL_BeginGPURenderPass failed: " << SDL_GetError() << std::endl;
         }
         return m_RenderPass != nullptr;
     }

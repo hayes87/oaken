@@ -96,34 +96,22 @@
     - [ ] Implement `SpriteBatch` to group 2D draw calls (UI/Sprites).
     - [ ] Optimize `RenderSystem` to use a single vertex buffer for multiple sprites.
 
-## Phase 6: Editor & Tools
-- [ ] **Entity Inspector**:
-    - [ ] Hierarchy Panel: List all entities in the ECS world.
-    - [ ] Properties Panel: View and edit component data (Transform, etc.) using ImGui.
-    - [ ] Selection Handling: Click to select entities.
-- [ ] **Asset Browser**:
-    - [ ] View files in the project directory.
-    - [ ] Drag-and-drop assets into the scene.
-- [ ] **Gizmos**:
-    - [ ] Visual tools to move/rotate/scale entities in the viewport (using `ImGuizmo`).
-- [ ] **Scene Management**:
-    - [ ] Save ECS World to JSON/Binary (Scene files).
-    - [ ] Load Scene files on startup.
-    - [ ] Parent/Child relationships in ECS (Flecs supports this natively).
-
-## Phase 7: Advanced Rendering (PBR & Clustered Forward)
+## Phase 6: Advanced Rendering (PBR & Forward+)
 
 ### Core Rendering Architecture
-- [ ] **Clustered Forward Renderer**:
-    - [ ] Implement 3D cluster grid (frustum subdivision).
-    - [ ] Compute shader for light assignment to clusters.
-    - [ ] Per-cluster light list lookup in forward pass.
-    - [ ] Light culling optimization via compute shaders.
-- [ ] **HDR Pipeline**:
-    - [ ] HDR render targets (RGBA16F/RGBA32F).
-    - [ ] Linear lighting workflow.
-    - [ ] Exposure-based tone mapping (Reinhard, ACES, Uncharted2).
-    - [ ] Gamma correction output.
+- [ ] **Forward+ Renderer (Tiled Forward)**:
+    - [ ] Depth pre-pass for early Z rejection.
+    - [ ] Screen-space tile grid (e.g., 16x16 pixel tiles).
+    - [ ] Compute shader for light culling per tile.
+    - [ ] Per-tile light index list stored in SSBO/buffer.
+    - [ ] Forward pass reads tile light lists for shading.
+    - [ ] Tile debug visualization (optional).
+- [x] **HDR Pipeline**:
+    - [x] HDR render targets (RGBA16F).
+    - [x] Linear lighting workflow.
+    - [x] Exposure-based tone mapping (Reinhard, ACES, Uncharted2).
+    - [x] Gamma correction output.
+    - [x] Debug menu controls (exposure, gamma, tone map operator).
 
 ### Physically Based Rendering (PBR)
 - [ ] **Metallic Workflow**:
@@ -190,7 +178,21 @@
     - [ ] Alpha blending with depth sorting.
 
 ### Alternative Renderers (Future/Branches)
-- [ ] **Tiled Forward Rendering**: Light culling per screen tile.
-- [ ] **Deferred Rendering**: G-buffer based lighting.
-- [ ] **Forward+ (Tiled Deferred Hybrid)**: Best of both approaches.
+- [ ] **Clustered Forward**: 3D cluster grid for depth-aware culling (better for large depth ranges).
+- [ ] **Deferred Rendering**: G-buffer approach for extreme light counts.
+
+## Phase 7: Editor & Tools
+- [ ] **Entity Inspector**:
+    - [ ] Hierarchy Panel: List all entities in the ECS world.
+    - [ ] Properties Panel: View and edit component data (Transform, etc.) using ImGui.
+    - [ ] Selection Handling: Click to select entities.
+- [ ] **Asset Browser**:
+    - [ ] View files in the project directory.
+    - [ ] Drag-and-drop assets into the scene.
+- [ ] **Gizmos**:
+    - [ ] Visual tools to move/rotate/scale entities in the viewport (using `ImGuizmo`).
+- [ ] **Scene Management**:
+    - [ ] Save ECS World to JSON/Binary (Scene files).
+    - [ ] Load Scene files on startup.
+    - [ ] Parent/Child relationships in ECS (Flecs supports this natively).
 

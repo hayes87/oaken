@@ -29,8 +29,14 @@ namespace Systems {
         if (m_LinePipeline) {
             SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_LinePipeline);
         }
+        if (m_ToneMappingPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_ToneMappingPipeline);
+        }
         if (m_Sampler) {
             SDL_ReleaseGPUSampler(m_RenderDevice.GetDevice(), m_Sampler);
+        }
+        if (m_LinearSampler) {
+            SDL_ReleaseGPUSampler(m_RenderDevice.GetDevice(), m_LinearSampler);
         }
         if (m_DefaultSkinBuffer) {
             SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), m_DefaultSkinBuffer);
@@ -45,7 +51,9 @@ namespace Systems {
         CreateMeshPipeline();
         CreateInstancedMeshPipeline();
         CreateLinePipeline();
+        CreateToneMappingPipeline();
         
+        // Nearest neighbor sampler (for sprites/pixel art)
         SDL_GPUSamplerCreateInfo samplerInfo = {};
         samplerInfo.min_filter = SDL_GPU_FILTER_NEAREST;
         samplerInfo.mag_filter = SDL_GPU_FILTER_NEAREST;
@@ -55,6 +63,17 @@ namespace Systems {
         samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         
         m_Sampler = SDL_CreateGPUSampler(m_RenderDevice.GetDevice(), &samplerInfo);
+        
+        // Linear sampler (for HDR texture sampling)
+        SDL_GPUSamplerCreateInfo linearSamplerInfo = {};
+        linearSamplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
+        linearSamplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
+        linearSamplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+        linearSamplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        linearSamplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        linearSamplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        
+        m_LinearSampler = SDL_CreateGPUSampler(m_RenderDevice.GetDevice(), &linearSamplerInfo);
     }
 
     void RenderSystem::CreatePipeline() {
@@ -97,9 +116,13 @@ namespace Systems {
         pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
         pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
 
-        // Color Blend
+        // Color Blend - Use HDR format if HDR is enabled
         SDL_GPUColorTargetDescription colorTargetDesc = {0};
-        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        if (m_RenderDevice.IsHDREnabled()) {
+            colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format
+        } else {
+            colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        }
         colorTargetDesc.blend_state.enable_blend = true;
         colorTargetDesc.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
         colorTargetDesc.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
@@ -193,9 +216,13 @@ namespace Systems {
         pipelineInfo.vertex_input_state.num_vertex_attributes = 5;
         pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
 
-        // Color Target
+        // Color Target - Use HDR format if HDR is enabled
         SDL_GPUColorTargetDescription colorTargetDesc = {};
-        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        if (m_RenderDevice.IsHDREnabled()) {
+            colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format
+        } else {
+            colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        }
         colorTargetDesc.blend_state.enable_blend = false; // Opaque for now
 
         pipelineInfo.target_info.num_color_targets = 1;
@@ -328,9 +355,13 @@ namespace Systems {
         pipelineInfo.vertex_input_state.num_vertex_attributes = 10;
         pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
 
-        // Color Target
+        // Color Target - Use HDR format if HDR is enabled
         SDL_GPUColorTargetDescription colorTargetDesc = {};
-        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        if (m_RenderDevice.IsHDREnabled()) {
+            colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format
+        } else {
+            colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        }
         colorTargetDesc.blend_state.enable_blend = false; // Opaque
 
         pipelineInfo.target_info.num_color_targets = 1;
@@ -413,9 +444,13 @@ namespace Systems {
         pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
         pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
 
-        // Color Target
+        // Color Target - Use HDR format if HDR is enabled
         SDL_GPUColorTargetDescription colorTargetDesc = {};
-        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        if (m_RenderDevice.IsHDREnabled()) {
+            colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format
+        } else {
+            colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        }
         colorTargetDesc.blend_state.enable_blend = false;
 
         pipelineInfo.target_info.num_color_targets = 1;
@@ -438,6 +473,66 @@ namespace Systems {
             LOG_CORE_ERROR("Failed to create line pipeline!");
         } else {
             LOG_CORE_INFO("Line Pipeline Created Successfully!");
+        }
+    }
+
+    void RenderSystem::CreateToneMappingPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string vertPath, fragPath;
+        
+        // Use Assets/Shaders/ path (relative to executable/working dir)
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/Fullscreen.vert.dxil";
+            fragPath = "Assets/Shaders/ToneMapping.frag.dxil";
+        } else {
+            vertPath = "Assets/Shaders/Fullscreen.vert.spv";
+            fragPath = "Assets/Shaders/ToneMapping.frag.spv";
+        }
+        
+        // Fullscreen vertex shader: no vertex input, 0 uniform buffers
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+        // ToneMapping fragment shader: 1 sampler (HDR texture), 1 uniform buffer (params)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 0, 1);
+        
+        if (!vertShader || !fragShader) {
+            LOG_CORE_ERROR("Failed to load tone mapping shaders!");
+            return;
+        }
+        
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        // No vertex input (fullscreen triangle generated in shader)
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+        
+        // Triangle list
+        pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        
+        // Rasterizer
+        pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+        
+        // Color Target - outputs to swapchain format
+        SDL_GPUColorTargetDescription colorTargetDesc = {};
+        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        colorTargetDesc.blend_state.enable_blend = false;
+        
+        pipelineInfo.target_info.num_color_targets = 1;
+        pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+        
+        // No depth testing for fullscreen pass
+        pipelineInfo.target_info.has_depth_stencil_target = false;
+        
+        m_ToneMappingPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_ToneMappingPipeline) {
+            LOG_CORE_ERROR("Failed to create tone mapping pipeline!");
+        } else {
+            LOG_CORE_INFO("Tone Mapping Pipeline Created Successfully!");
         }
     }
 
@@ -1142,7 +1237,81 @@ namespace Systems {
             });
     }
 
+    void RenderSystem::RenderToneMappingPass() {
+        if (!m_ToneMappingPipeline || !m_RenderDevice.IsHDREnabled()) {
+            return;
+        }
+        
+        // Skip if frame is not valid (e.g., window minimized)
+        if (!m_RenderDevice.IsFrameValid()) {
+            return;
+        }
+        
+        SDL_GPUTexture* hdrTexture = m_RenderDevice.GetHDRTexture();
+        if (!hdrTexture) {
+            return;
+        }
+        
+        // End the current HDR render pass
+        m_RenderDevice.EndRenderPass();
+        
+        // Begin a new render pass targeting the swapchain
+        if (!m_RenderDevice.BeginToneMappingPass()) {
+            LOG_CORE_ERROR("Failed to begin tone mapping pass!");
+            return;
+        }
+        
+        SDL_GPURenderPass* pass = m_RenderDevice.GetRenderPass();
+        if (!pass) {
+            return;
+        }
+        
+        // Set viewport to match swapchain dimensions
+        SDL_GPUViewport viewport = {};
+        viewport.x = 0;
+        viewport.y = 0;
+        viewport.w = static_cast<float>(m_RenderDevice.GetRenderWidth());
+        viewport.h = static_cast<float>(m_RenderDevice.GetRenderHeight());
+        viewport.min_depth = 0.0f;
+        viewport.max_depth = 1.0f;
+        SDL_SetGPUViewport(pass, &viewport);
+        
+        // Bind the tone mapping pipeline
+        SDL_BindGPUGraphicsPipeline(pass, m_ToneMappingPipeline);
+        
+        // Bind HDR texture as sampler
+        SDL_GPUTextureSamplerBinding texBinding = {};
+        texBinding.texture = hdrTexture;
+        texBinding.sampler = m_LinearSampler;
+        SDL_BindGPUFragmentSamplers(pass, 0, &texBinding, 1);
+        
+        // Push tone mapping parameters
+        struct ToneMappingParams {
+            float exposure;
+            float gamma;
+            int32_t tonemapOperator;
+            float _padding;
+        } params;
+        
+        params.exposure = m_RenderDevice.GetExposure();
+        params.gamma = m_RenderDevice.GetGamma();
+        params.tonemapOperator = static_cast<int32_t>(m_RenderDevice.GetToneMapOperator());
+        params._padding = 0.0f;
+        
+        SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, &params, sizeof(params));
+        
+        // Draw fullscreen triangle (3 vertices, generated in shader)
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        
+        m_Stats.drawCalls++;
+    }
+
     void RenderSystem::EndFrame() {
+        // If HDR is enabled, run tone mapping pass before ending frame
+        if (m_RenderDevice.IsHDREnabled() && m_ToneMappingPipeline) {
+            RenderToneMappingPass();
+        }
+        
         m_RenderDevice.EndFrame();
     }
 

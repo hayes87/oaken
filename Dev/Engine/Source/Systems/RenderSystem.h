@@ -78,7 +78,9 @@ namespace Systems {
         SDL_GPUGraphicsPipeline* m_MeshPipeline = nullptr;
         SDL_GPUGraphicsPipeline* m_InstancedMeshPipeline = nullptr;  // For batch rendering
         SDL_GPUGraphicsPipeline* m_LinePipeline = nullptr;
+        SDL_GPUGraphicsPipeline* m_ToneMappingPipeline = nullptr;    // For HDR tone mapping
         SDL_GPUSampler* m_Sampler = nullptr;
+        SDL_GPUSampler* m_LinearSampler = nullptr;  // For HDR texture sampling
         
         std::vector<LineVertex> m_LineVertices;
         std::vector<SDL_GPUBuffer*> m_BuffersToDelete;
@@ -96,6 +98,9 @@ namespace Systems {
         void CreateMeshPipeline();
         void CreateInstancedMeshPipeline();
         void CreateLinePipeline();
+        void CreateToneMappingPipeline();
+        
+        void RenderToneMappingPass();  // Tone map HDR -> Swapchain
         
         void BuildBatches();
         void RenderBatches(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj, const void* lightUbo, size_t lightUboSize);

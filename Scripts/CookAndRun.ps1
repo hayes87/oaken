@@ -13,13 +13,19 @@ New-Item -ItemType Directory -Force -Path "$CookedDir/Shaders" | Out-Null
 
 # Compile Shaders
 Write-Host "Compiling Shaders..."
-$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "MeshInstanced.vert", "MeshInstanced.frag", "Line.vert", "Line.frag")
+$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "MeshInstanced.vert", "MeshInstanced.frag", "Line.vert", "Line.frag", "Fullscreen.vert", "ToneMapping.frag")
+
+# Ensure shader directories exist
+New-Item -ItemType Directory -Force -Path "$CookedDir/Shaders" | Out-Null
+New-Item -ItemType Directory -Force -Path "$GameDir/Assets/Shaders" | Out-Null
+
 foreach ($Shader in $Shaders) {
     $ShaderInput = "$EngineSource/Shaders/$Shader"
     $Output = "$EngineSource/Shaders/$Shader.spv"
     if (Test-Path $ShaderInput) {
         glslc $ShaderInput -o $Output
         Copy-Item $Output "$CookedDir/Shaders/" -Force
+        Copy-Item $Output "$GameDir/Assets/Shaders/" -Force
     }
 }
 
