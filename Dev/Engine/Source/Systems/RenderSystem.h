@@ -21,7 +21,7 @@ namespace Systems {
         ~RenderSystem();
         
         void Init();
-        void BeginFrame();
+        void BeginFrame(bool drawSkeleton = true);
         void DrawScene(double alpha);
         void EndFrame();
 

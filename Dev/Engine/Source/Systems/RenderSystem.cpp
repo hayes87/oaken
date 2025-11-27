@@ -293,7 +293,7 @@ namespace Systems {
         }
     }
 
-    void RenderSystem::BeginFrame() {
+    void RenderSystem::BeginFrame(bool drawSkeleton) {
         // Cleanup resources from previous frames
         for (auto b : m_BuffersToDelete) SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), b);
         m_BuffersToDelete.clear();
@@ -320,36 +320,38 @@ namespace Systems {
         
         m_LineVertices.clear();
         
-        // Debug Draw Skeletons
-        m_Context.World->query<WorldTransform, AnimatorComponent, MeshComponent>()
-            .each([&](flecs::entity e, WorldTransform& t, AnimatorComponent& anim, MeshComponent& meshComp) {
-                if (anim.skeleton && !anim.models.empty()) {
-                    const auto& parents = anim.skeleton->skeleton.joint_parents();
-                    int numJoints = anim.skeleton->skeleton.num_joints();
-                    
-                    // Apply render offset for skeleton debug drawing (same as mesh)
-                    glm::mat4 offsetMatrix = t.matrix;
-                    if (meshComp.renderOffset != glm::vec3(0.0f)) {
-                        offsetMatrix = glm::translate(offsetMatrix, meshComp.renderOffset);
-                    }
-                    
-                    for (int i = 0; i < numJoints; ++i) {
-                        int parent = parents[i];
-                        if (parent != ozz::animation::Skeleton::kNoParent) {
-                            glm::mat4 childModel;
-                            memcpy(&childModel, &anim.models[i], sizeof(glm::mat4));
-                            
-                            glm::mat4 parentModel;
-                            memcpy(&parentModel, &anim.models[parent], sizeof(glm::mat4));
-                            
-                            glm::vec3 p1 = glm::vec3(offsetMatrix * childModel * glm::vec4(0,0,0,1));
-                            glm::vec3 p2 = glm::vec3(offsetMatrix * parentModel * glm::vec4(0,0,0,1));
-                            
-                            DrawLine(p1, p2, {1.0f, 1.0f, 0.0f});
+        // Debug Draw Skeletons (conditional)
+        if (drawSkeleton) {
+            m_Context.World->query<WorldTransform, AnimatorComponent, MeshComponent>()
+                .each([&](flecs::entity e, WorldTransform& t, AnimatorComponent& anim, MeshComponent& meshComp) {
+                    if (anim.skeleton && !anim.models.empty()) {
+                        const auto& parents = anim.skeleton->skeleton.joint_parents();
+                        int numJoints = anim.skeleton->skeleton.num_joints();
+                        
+                        // Apply render offset for skeleton debug drawing (same as mesh)
+                        glm::mat4 offsetMatrix = t.matrix;
+                        if (meshComp.renderOffset != glm::vec3(0.0f)) {
+                            offsetMatrix = glm::translate(offsetMatrix, meshComp.renderOffset);
+                        }
+                        
+                        for (int i = 0; i < numJoints; ++i) {
+                            int parent = parents[i];
+                            if (parent != ozz::animation::Skeleton::kNoParent) {
+                                glm::mat4 childModel;
+                                memcpy(&childModel, &anim.models[i], sizeof(glm::mat4));
+                                
+                                glm::mat4 parentModel;
+                                memcpy(&parentModel, &anim.models[parent], sizeof(glm::mat4));
+                                
+                                glm::vec3 p1 = glm::vec3(offsetMatrix * childModel * glm::vec4(0,0,0,1));
+                                glm::vec3 p2 = glm::vec3(offsetMatrix * parentModel * glm::vec4(0,0,0,1));
+                                
+                                DrawLine(p1, p2, {1.0f, 1.0f, 0.0f});
+                            }
                         }
                     }
-                }
-            });
+                });
+        }
 
         // Upload Lines if any
         if (!m_LineVertices.empty()) {

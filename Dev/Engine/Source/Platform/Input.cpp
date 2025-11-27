@@ -20,6 +20,9 @@ namespace Platform {
         // Reset scroll delta (it's accumulated in ProcessEvent)
         m_ScrollDelta = 0.0f;
         
+        // Clear keys pressed this frame (before ProcessEvent fills it)
+        m_KeysPressed.clear();
+        
         // Update generic input axes from keyboard/mouse/gamepad
         UpdateAxes();
     }
@@ -81,6 +84,9 @@ namespace Platform {
         }
         
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
+            // Track key press for WasKeyPressed
+            m_KeysPressed.insert(event.key.scancode);
+            
             // Find if this key is mapped to an action
             for (const auto& [hash, scancode] : m_ActionMap) {
                 if (scancode == event.key.scancode) {
@@ -105,6 +111,10 @@ namespace Platform {
             return m_KeyboardState[key];
         }
         return false;
+    }
+
+    bool Input::WasKeyPressed(SDL_Scancode key) const {
+        return m_KeysPressed.find(key) != m_KeysPressed.end();
     }
 
     void Input::MapAction(Core::HashedString action, SDL_Scancode key) {

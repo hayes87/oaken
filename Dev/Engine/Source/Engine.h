@@ -20,6 +20,11 @@
 #include "Systems/CameraSystem.h"
 #include "Systems/CharacterSystem.h"
 
+// ImGui
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_sdlgpu3.h>
+
 #ifdef _WIN32
     #define GAME_EXPORT extern "C" __declspec(dllexport)
 #else
@@ -74,4 +79,21 @@ private:
     bool m_EditorMode = true;
     bool m_DebugPhysics = true;  // Draw physics colliders
     double m_TimeLimit = 0.0;
+
+    // Debug UI state
+    bool m_ShowDebugMenu = false;
+    bool m_ShowColliders = true;
+    bool m_ShowSkeleton = true;
+    bool m_ShowFPS = true;
+    
+    // FPS tracking
+    float m_FPSAccumulator = 0.0f;
+    int m_FrameCount = 0;
+    float m_CurrentFPS = 0.0f;
+
+    void InitImGui();
+    void ShutdownImGui();
+    void RenderDebugMenu();
+    void HandleDebugInput();
+    void UpdateFPSCounter(float deltaTime);
 };

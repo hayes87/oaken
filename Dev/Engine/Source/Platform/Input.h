@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <glm/glm.hpp>
 #include "../Core/HashedString.h"
 
@@ -30,6 +31,7 @@ namespace Platform {
 
         bool IsActionActive(Core::HashedString action) const;
         bool IsKeyDown(SDL_Scancode key) const;
+        bool WasKeyPressed(SDL_Scancode key) const;  // Key just pressed this frame
         void MapAction(Core::HashedString action, SDL_Scancode key);
 
         // Mouse Support
@@ -54,6 +56,7 @@ namespace Platform {
         int m_NumKeys = 0;
         
         std::unordered_map<uint32_t, SDL_Scancode> m_ActionMap; // Hash -> Scancode
+        std::unordered_set<SDL_Scancode> m_KeysPressed;  // Keys pressed this frame
         float m_MouseDeltaX = 0.0f;
         float m_MouseDeltaY = 0.0f;
         float m_ScrollDelta = 0.0f;

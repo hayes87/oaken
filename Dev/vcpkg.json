@@ -24,6 +24,7 @@
             "features": [
                 "docking-experimental",
                 "sdl3-binding",
+                "sdlgpu3-binding",
                 "opengl3-binding"
             ]
         }

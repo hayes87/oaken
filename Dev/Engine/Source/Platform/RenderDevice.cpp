@@ -31,6 +31,10 @@ namespace Platform {
         return true;
     }
 
+    SDL_GPUTextureFormat RenderDevice::GetSwapchainTextureFormat() const {
+        return SDL_GetGPUSwapchainTextureFormat(m_Device, m_Window->GetNativeWindow());
+    }
+
     void RenderDevice::Shutdown() {
         if (m_Device) {
             if (m_DepthTexture) {
