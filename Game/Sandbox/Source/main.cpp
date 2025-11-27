@@ -130,8 +130,8 @@ GAME_EXPORT void GameInit(Engine& engine) {
 
     // Load Test Texture
     // Path is relative to the executable (Build/Game/Sandbox/Debug/Sandbox.exe)
-    // Assets are in Build/Game/Sandbox/Cooked/Assets/
-    std::string assetPath = "../Cooked/Assets/test.oaktex";
+    // Assets are copied to Build/Game/Sandbox/Debug/Assets/
+    std::string assetPath = "Assets/test.oaktex";
     if (std::filesystem::exists(assetPath)) {
         g_TestTexture = engine.GetResourceManager().LoadTexture(assetPath);
         if (g_TestTexture) {
@@ -146,7 +146,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Mesh
-    std::string meshPath = "../Cooked/Assets/Models/Joli.oakmesh";
+    std::string meshPath = "Assets/Models/Joli.oakmesh";
     if (std::filesystem::exists(meshPath)) {
         g_TestMesh = engine.GetResourceManager().LoadMesh(meshPath);
         if (g_TestMesh) {
@@ -157,7 +157,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Test Skeleton
-    std::string skelPath = "../Cooked/Assets/Models/Joli.oakskel";
+    std::string skelPath = "Assets/Models/Joli.oakskel";
     if (std::filesystem::exists(skelPath)) {
         g_TestSkeleton = engine.GetResourceManager().LoadSkeleton(skelPath);
         if (g_TestSkeleton) {
@@ -168,7 +168,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Idle Animation
-    std::string idleAnimPath = "../Cooked/Assets/Models/Joli.oakanim";
+    std::string idleAnimPath = "Assets/Models/Joli.oakanim";
     if (std::filesystem::exists(idleAnimPath)) {
         g_IdleAnimation = engine.GetResourceManager().LoadAnimation(idleAnimPath);
         if (g_IdleAnimation) {
@@ -179,7 +179,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
 
     // Load Run Animation
-    std::string runAnimPath = "../Cooked/Assets/Models/Joli_Run.oakanim";
+    std::string runAnimPath = "Assets/Models/Joli_Run.oakanim";
     if (std::filesystem::exists(runAnimPath)) {
         g_RunAnimation = engine.GetResourceManager().LoadAnimation(runAnimPath);
         if (g_RunAnimation) {

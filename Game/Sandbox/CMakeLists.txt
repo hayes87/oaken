@@ -41,3 +41,11 @@ add_custom_command(TARGET Sandbox POST_BUILD
     $<TARGET_FILE_DIR:Sandbox>/Assets/Shaders
     COMMENT "Copying Shaders to Game Directory"
 )
+
+# Copy Game Assets (cooked) to Game Directory
+add_custom_command(TARGET Sandbox POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/Assets
+    $<TARGET_FILE_DIR:Sandbox>/Assets
+    COMMENT "Copying Game Assets to Game Directory"
+)
