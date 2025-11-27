@@ -20,17 +20,30 @@ namespace Systems {
         if (m_Pipeline) {
             SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_Pipeline);
         }
+        if (m_MeshPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_MeshPipeline);
+        }
+        if (m_InstancedMeshPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_InstancedMeshPipeline);
+        }
+        if (m_LinePipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_LinePipeline);
+        }
         if (m_Sampler) {
             SDL_ReleaseGPUSampler(m_RenderDevice.GetDevice(), m_Sampler);
         }
         if (m_DefaultSkinBuffer) {
             SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), m_DefaultSkinBuffer);
         }
+        if (m_InstanceBuffer) {
+            SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), m_InstanceBuffer);
+        }
     }
 
     void RenderSystem::Init() {
         CreatePipeline();
         CreateMeshPipeline();
+        CreateInstancedMeshPipeline();
         CreateLinePipeline();
         
         SDL_GPUSamplerCreateInfo samplerInfo = {};
@@ -203,6 +216,141 @@ namespace Systems {
             LOG_CORE_ERROR("Failed to create mesh pipeline!");
         } else {
             LOG_CORE_INFO("Mesh Pipeline Created Successfully!");
+        }
+    }
+
+    void RenderSystem::CreateInstancedMeshPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string vertPath, fragPath;
+
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/MeshInstanced.vert.dxil";
+            fragPath = "Assets/Shaders/MeshInstanced.frag.dxil";
+        } else {
+            vertPath = "Assets/Shaders/MeshInstanced.vert.spv";
+            fragPath = "Assets/Shaders/MeshInstanced.frag.spv";
+        }
+
+        // Vertex Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (ViewProj)
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
+        // Fragment Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (Lights)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 1);
+
+        if (!vertShader || !fragShader) {
+            LOG_CORE_WARN("Failed to load instanced mesh shaders - batching will be disabled");
+            return;
+        }
+
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        // Vertex Input State - Two vertex buffers: mesh vertices + instance data
+        SDL_GPUVertexBufferDescription vertexBufferDescs[2] = {};
+        
+        // Buffer 0: Mesh vertex data (per-vertex)
+        vertexBufferDescs[0].slot = 0;
+        vertexBufferDescs[0].pitch = sizeof(Resources::Vertex);
+        vertexBufferDescs[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDescs[0].instance_step_rate = 0;
+        
+        // Buffer 1: Instance data (per-instance)
+        vertexBufferDescs[1].slot = 1;
+        vertexBufferDescs[1].pitch = sizeof(MeshInstance);  // mat4 + vec4 = 80 bytes
+        vertexBufferDescs[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+        vertexBufferDescs[1].instance_step_rate = 0;  // Must be 0 per SDL_GPU spec
+
+        SDL_GPUVertexAttribute vertexAttributes[10];
+        
+        // Per-vertex attributes (from buffer 0)
+        // Position
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].buffer_slot = 0;
+        vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[0].offset = offsetof(Resources::Vertex, position);
+        
+        // Normal
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].buffer_slot = 0;
+        vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[1].offset = offsetof(Resources::Vertex, normal);
+
+        // UV
+        vertexAttributes[2].location = 2;
+        vertexAttributes[2].buffer_slot = 0;
+        vertexAttributes[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        vertexAttributes[2].offset = offsetof(Resources::Vertex, uv);
+
+        // Weights (unused for static but shader expects it)
+        vertexAttributes[3].location = 3;
+        vertexAttributes[3].buffer_slot = 0;
+        vertexAttributes[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[3].offset = offsetof(Resources::Vertex, weights);
+
+        // Joints (unused for static but shader expects it)
+        vertexAttributes[4].location = 4;
+        vertexAttributes[4].buffer_slot = 0;
+        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[4].offset = offsetof(Resources::Vertex, joints);
+
+        // Per-instance attributes (from buffer 1)
+        // Model matrix (mat4 = 4 x vec4, locations 5-8)
+        vertexAttributes[5].location = 5;
+        vertexAttributes[5].buffer_slot = 1;
+        vertexAttributes[5].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[5].offset = 0;  // Column 0
+
+        vertexAttributes[6].location = 6;
+        vertexAttributes[6].buffer_slot = 1;
+        vertexAttributes[6].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[6].offset = 16;  // Column 1
+
+        vertexAttributes[7].location = 7;
+        vertexAttributes[7].buffer_slot = 1;
+        vertexAttributes[7].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[7].offset = 32;  // Column 2
+
+        vertexAttributes[8].location = 8;
+        vertexAttributes[8].buffer_slot = 1;
+        vertexAttributes[8].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[8].offset = 48;  // Column 3
+
+        // Instance color (location 9)
+        vertexAttributes[9].location = 9;
+        vertexAttributes[9].buffer_slot = 1;
+        vertexAttributes[9].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[9].offset = 64;  // After mat4
+
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 2;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDescs;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 10;
+        pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
+
+        // Color Target
+        SDL_GPUColorTargetDescription colorTargetDesc = {};
+        colorTargetDesc.format = SDL_GetGPUSwapchainTextureFormat(device, m_RenderDevice.GetWindow()->GetNativeWindow());
+        colorTargetDesc.blend_state.enable_blend = false; // Opaque
+
+        pipelineInfo.target_info.num_color_targets = 1;
+        pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+        
+        // Depth Stencil
+        SDL_GPUDepthStencilState depthStencilState = {};
+        depthStencilState.enable_depth_test = true;
+        depthStencilState.enable_depth_write = true;
+        depthStencilState.compare_op = SDL_GPU_COMPAREOP_LESS;
+        
+        pipelineInfo.depth_stencil_state = depthStencilState;
+        pipelineInfo.target_info.has_depth_stencil_target = true;
+        pipelineInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
+
+        m_InstancedMeshPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_InstancedMeshPipeline) {
+            LOG_CORE_WARN("Failed to create instanced mesh pipeline - batching will be disabled");
+        } else {
+            LOG_CORE_INFO("Instanced Mesh Pipeline Created Successfully!");
         }
     }
 
@@ -399,7 +547,10 @@ namespace Systems {
         
         if (!m_Pipeline) return;
 
-        // Prepare Skinning Data (UBO-based)
+        // Build batches first (collects all mesh instances)
+        BuildBatches();
+
+        // Prepare Skinning Data (UBO-based) for animated meshes
         std::unordered_map<uint64_t, std::vector<glm::mat4>> skinData;
         
         m_Context.World->query<WorldTransform, MeshComponent, AnimatorComponent>()
@@ -411,7 +562,6 @@ namespace Systems {
                     
                     std::vector<glm::mat4> jointMatrices(256, glm::mat4(1.0f));
                     
-                    // Compute: skinningMatrix[compactIdx] = models[joint_remaps[compactIdx]] * ibms[compactIdx]
                     for (size_t compactIdx = 0; compactIdx < usedJointCount && compactIdx < 256; ++compactIdx) {
                         uint16_t skelIdx = jointRemaps[compactIdx];
                         
@@ -426,7 +576,7 @@ namespace Systems {
                 }
             });
 
-        // Copy Pass for Lines
+        // Copy Pass - upload lines and instance buffers
         SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(m_RenderDevice.GetCommandBuffer());
 
         // Upload Lines
@@ -463,6 +613,75 @@ namespace Systems {
             m_TransferBuffersToDelete.push_back(transferBuffer);
         }
         m_CurrentLineBuffer = lineBuffer;
+
+        // Upload Instance Buffer for all batched static meshes (shared buffer)
+        // First, calculate total instance count and assign offsets
+        uint32_t totalInstances = 0;
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (batch.instances.empty()) continue;
+            batch.instanceOffset = totalInstances;
+            totalInstances += static_cast<uint32_t>(batch.instances.size());
+        }
+        
+        if (totalInstances > 0) {
+            size_t requiredSize = totalInstances * sizeof(MeshInstance);
+            
+            // Resize persistent instance buffer if needed
+            if (requiredSize > m_InstanceBufferCapacity) {
+                if (m_InstanceBuffer) {
+                    m_BuffersToDelete.push_back(m_InstanceBuffer);
+                }
+                
+                // Grow by 50% extra to avoid frequent reallocations
+                size_t newCapacity = static_cast<size_t>(requiredSize * 1.5);
+                
+                SDL_GPUBufferCreateInfo bufferInfo = {};
+                bufferInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+                bufferInfo.size = newCapacity;
+                
+                m_InstanceBuffer = SDL_CreateGPUBuffer(m_RenderDevice.GetDevice(), &bufferInfo);
+                m_InstanceBufferCapacity = static_cast<uint32_t>(newCapacity);
+                
+                LOG_CORE_INFO("Resized instance buffer to {} instances ({} bytes)", 
+                              newCapacity / sizeof(MeshInstance), newCapacity);
+            }
+            
+            if (m_InstanceBuffer) {
+                // Create transfer buffer and pack all instances
+                SDL_GPUTransferBufferCreateInfo transferInfo = {};
+                transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+                transferInfo.size = requiredSize;
+                
+                SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_RenderDevice.GetDevice(), &transferInfo);
+                if (transferBuffer) {
+                    Uint8* map = (Uint8*)SDL_MapGPUTransferBuffer(m_RenderDevice.GetDevice(), transferBuffer, false);
+                    
+                    // Pack all batch instances into contiguous memory
+                    size_t offset = 0;
+                    for (auto& [meshPtr, batch] : m_Batches) {
+                        if (batch.instances.empty()) continue;
+                        size_t batchSize = batch.instances.size() * sizeof(MeshInstance);
+                        memcpy(map + offset, batch.instances.data(), batchSize);
+                        offset += batchSize;
+                    }
+                    
+                    SDL_UnmapGPUTransferBuffer(m_RenderDevice.GetDevice(), transferBuffer);
+                    
+                    SDL_GPUTransferBufferLocation source = {};
+                    source.transfer_buffer = transferBuffer;
+                    source.offset = 0;
+                    
+                    SDL_GPUBufferRegion destination = {};
+                    destination.buffer = m_InstanceBuffer;
+                    destination.offset = 0;
+                    destination.size = requiredSize;
+                    
+                    SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+                    
+                    m_TransferBuffersToDelete.push_back(transferBuffer);
+                }
+            }
+        }
 
         SDL_EndGPUCopyPass(copyPass);
 
@@ -564,52 +783,11 @@ namespace Systems {
                     });
                 lightUbo.numPointLights = pointLightIdx;
 
-                m_Context.World->query<WorldTransform, MeshComponent>()
-                    .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp) {
-                    if (meshComp.mesh) {
-                        struct SceneUBO {
-                            glm::mat4 model;
-                            glm::mat4 view;
-                            glm::mat4 proj;
-                        } sceneUbo;
-                        
-                        // Apply render offset for mesh origin adjustment
-                        glm::mat4 model = t.matrix;
-                        if (meshComp.renderOffset != glm::vec3(0.0f)) {
-                            model = glm::translate(model, meshComp.renderOffset);
-                        }
-                        sceneUbo.model = model;
-                        sceneUbo.view = view;
-                        sceneUbo.proj = proj;
-
-                        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &sceneUbo, sizeof(sceneUbo));
-
-                        // Push Skin UBO (256 matrices)
-                        std::vector<glm::mat4> skinMatrices(256, glm::mat4(1.0f));
-                        if (skinData.count(e.id()) > 0) {
-                            skinMatrices = skinData[e.id()];
-                        }
-                        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, skinMatrices.data(), 256 * sizeof(glm::mat4));
-                        
-                        // Push Light UBO to fragment shader
-                        SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, &lightUbo, sizeof(lightUbo));
-                        
-                        // Bind Vertex Buffers
-                        SDL_GPUBufferBinding vertexBinding;
-                        vertexBinding.buffer = meshComp.mesh->GetVertexBuffer();
-                        vertexBinding.offset = 0;
-                        
-                        SDL_GPUBufferBinding indexBinding;
-                        indexBinding.buffer = meshComp.mesh->GetIndexBuffer();
-                        indexBinding.offset = 0;
-
-                        SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
-                        SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-                        
-                        Uint32 indexCount = meshComp.mesh->GetIndexCount();
-                        SDL_DrawGPUIndexedPrimitives(pass, indexCount, 1, 0, 0, 0);
-                    }
-                });
+                // Render batched static meshes (using instanced pipeline)
+                RenderBatches(pass, view, proj, &lightUbo, sizeof(lightUbo));
+                
+                // Render skinned/animated meshes (using regular pipeline)
+                RenderSkinnedMeshes(pass, view, proj, &lightUbo, sizeof(lightUbo), skinData);
 
                 // Render Lines
                 if (m_LinePipeline && m_CurrentLineBuffer && !m_LineVertices.empty()) {
@@ -805,6 +983,162 @@ namespace Systems {
                 
                 // Character capsule center is at transform position
                 DrawWireCapsule(transform.position, physics.height * 0.5f, physics.radius, color);
+            });
+    }
+
+    void RenderSystem::BuildBatches() {
+        m_Batches.clear();
+        m_Stats.Reset();
+        
+        m_Context.World->query<WorldTransform, MeshComponent>()
+            .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp) {
+                if (!meshComp.mesh) return;
+                
+                m_Stats.totalInstances++;
+                
+                // Check if entity has animation/skinning - skip for batching
+                bool hasSkinning = e.has<AnimatorComponent>() && e.get<AnimatorComponent>().skeleton;
+                
+                if (hasSkinning) {
+                    m_Stats.skinnedInstances++;
+                    return;  // Skinned meshes are rendered separately, not batched
+                }
+                
+                m_Stats.batchedInstances++;
+                
+                Resources::Mesh* meshPtr = meshComp.mesh.get();
+                
+                // Get or create batch for this mesh
+                auto& batch = m_Batches[meshPtr];
+                batch.mesh = meshComp.mesh;
+                
+                // Build model matrix with render offset
+                glm::mat4 model = t.matrix;
+                if (meshComp.renderOffset != glm::vec3(0.0f)) {
+                    model = glm::translate(model, meshComp.renderOffset);
+                }
+                
+                MeshInstance instance;
+                instance.model = model;
+                instance.color = glm::vec4(1.0f);  // Default white, could use material color
+                
+                batch.instances.push_back(instance);
+            });
+    }
+
+    void RenderSystem::RenderBatches(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj, 
+                                      const void* lightUbo, size_t lightUboSize) {
+        if (!m_InstancedMeshPipeline || !m_InstanceBuffer) {
+            return;
+        }
+        
+        // Check if we have any batches to render
+        bool hasBatches = false;
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (!batch.instances.empty()) {
+                hasBatches = true;
+                break;
+            }
+        }
+        
+        if (!hasBatches) return;
+        
+        SDL_BindGPUGraphicsPipeline(pass, m_InstancedMeshPipeline);
+        
+        // Push ViewProj uniform
+        struct ViewProjUBO {
+            glm::mat4 view;
+            glm::mat4 proj;
+        } viewProjUbo;
+        viewProjUbo.view = view;
+        viewProjUbo.proj = proj;
+        
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (batch.instances.empty()) continue;
+            
+            // Push uniforms per batch
+            SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &viewProjUbo, sizeof(viewProjUbo));
+            SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, lightUbo, lightUboSize);
+            
+            // Bind vertex buffers (mesh vertices + instance data with offset)
+            SDL_GPUBufferBinding bindings[2];
+            bindings[0].buffer = batch.mesh->GetVertexBuffer();
+            bindings[0].offset = 0;
+            bindings[1].buffer = m_InstanceBuffer;
+            bindings[1].offset = batch.instanceOffset * sizeof(MeshInstance);
+            
+            SDL_BindGPUVertexBuffers(pass, 0, bindings, 2);
+            
+            // Bind index buffer
+            SDL_GPUBufferBinding indexBinding;
+            indexBinding.buffer = batch.mesh->GetIndexBuffer();
+            indexBinding.offset = 0;
+            SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            
+            // Draw instanced
+            Uint32 indexCount = batch.mesh->GetIndexCount();
+            Uint32 instanceCount = static_cast<Uint32>(batch.instances.size());
+            SDL_DrawGPUIndexedPrimitives(pass, indexCount, instanceCount, 0, 0, 0);
+            
+            m_Stats.drawCalls++;
+        }
+    }
+
+    void RenderSystem::RenderSkinnedMeshes(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj,
+                                            const void* lightUbo, size_t lightUboSize,
+                                            const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData) {
+        if (!m_MeshPipeline) return;
+        
+        SDL_BindGPUGraphicsPipeline(pass, m_MeshPipeline);
+        
+        m_Context.World->query<WorldTransform, MeshComponent, AnimatorComponent>()
+            .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp, AnimatorComponent& anim) {
+                if (!meshComp.mesh || !anim.skeleton) return;
+                
+                struct SceneUBO {
+                    glm::mat4 model;
+                    glm::mat4 view;
+                    glm::mat4 proj;
+                } sceneUbo;
+                
+                // Apply render offset
+                glm::mat4 model = t.matrix;
+                if (meshComp.renderOffset != glm::vec3(0.0f)) {
+                    model = glm::translate(model, meshComp.renderOffset);
+                }
+                sceneUbo.model = model;
+                sceneUbo.view = view;
+                sceneUbo.proj = proj;
+
+                SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &sceneUbo, sizeof(sceneUbo));
+
+                // Push Skin UBO (256 matrices)
+                std::vector<glm::mat4> skinMatrices(256, glm::mat4(1.0f));
+                auto it = skinData.find(e.id());
+                if (it != skinData.end()) {
+                    skinMatrices = it->second;
+                }
+                SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, skinMatrices.data(), 256 * sizeof(glm::mat4));
+                
+                // Push Light UBO
+                SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, lightUbo, lightUboSize);
+                
+                // Bind buffers
+                SDL_GPUBufferBinding vertexBinding;
+                vertexBinding.buffer = meshComp.mesh->GetVertexBuffer();
+                vertexBinding.offset = 0;
+                
+                SDL_GPUBufferBinding indexBinding;
+                indexBinding.buffer = meshComp.mesh->GetIndexBuffer();
+                indexBinding.offset = 0;
+
+                SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
+                SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+                
+                Uint32 indexCount = meshComp.mesh->GetIndexCount();
+                SDL_DrawGPUIndexedPrimitives(pass, indexCount, 1, 0, 0, 0);
+                
+                m_Stats.drawCalls++;
             });
     }
 

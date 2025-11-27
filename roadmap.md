@@ -77,7 +77,22 @@
     - [ ] Execute `OnUpdate` in Lua scripts.
 
 ## Phase 5: Rendering Optimization & Polish
-- [ ] **Batch Rendering**:
+- [x] **ImGui Debug Menu**:
+    - [x] Integrate ImGui with SDL_GPU backend (sdlgpu3-binding).
+    - [x] Debug menu with FPS counter, render stats display.
+    - [x] Toggle colliders (F1), skeleton (F2), menu (F11).
+- [x] **Batch Rendering (Foundation)**:
+    - [x] Implement `MeshInstanced` shaders for instanced rendering.
+    - [x] Create instanced mesh pipeline with per-instance vertex attributes.
+    - [x] Implement `BuildBatches()` to group meshes by resource.
+    - [x] Implement `RenderBatches()` for static mesh instancing.
+    - [x] Separate `RenderSkinnedMeshes()` for animated meshes.
+    - [x] Add render stats (draw calls, batched/skinned instances).
+- [ ] **Batch Rendering (Optimization)**:
+    - [x] Persistent instance buffers (reuse across frames).
+    - [x] Fix batch classification for mixed skinned/static mesh resources.
+    - [ ] Material-based batching (group by mesh + material).
+- [ ] **SpriteBatch**:
     - [ ] Implement `SpriteBatch` to group 2D draw calls (UI/Sprites).
     - [ ] Optimize `RenderSystem` to use a single vertex buffer for multiple sprites.
 - [ ] **Material System**:

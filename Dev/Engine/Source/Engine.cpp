@@ -314,12 +314,21 @@ void Engine::RenderDebugMenu() {
     if (!m_ShowDebugMenu) return;
     
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(300, 250), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
     
     if (ImGui::Begin("Debug Menu (F11)", &m_ShowDebugMenu)) {
         // FPS display
         if (m_ShowFPS) {
             ImGui::Text("FPS: %.1f (%.3f ms)", m_CurrentFPS, 1000.0f / m_CurrentFPS);
+            ImGui::Separator();
+        }
+        
+        // Render stats
+        if (m_RenderSystem) {
+            const auto& stats = m_RenderSystem->GetStats();
+            ImGui::Text("Draw Calls: %u", stats.drawCalls);
+            ImGui::Text("Total Instances: %u", stats.totalInstances);
+            ImGui::Text("Batched: %u | Skinned: %u", stats.batchedInstances, stats.skinnedInstances);
             ImGui::Separator();
         }
         

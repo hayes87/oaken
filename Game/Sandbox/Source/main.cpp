@@ -214,7 +214,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
             })
             .set<CharacterPhysics>({
                 1.2f,                 // height (world scale - 1.8 meters tall)
-                0.3f,                 // radius (world scale - 0.3 meters)
+                0.3f,                 // radius (world scale - 0.3 meters)aaaaaaaaaaa
                 70.0f,                // mass
                 45.0f,                // max slope angle
                 0.35f,                // max step height (35cm - can step over small objects)

@@ -13,7 +13,7 @@ New-Item -ItemType Directory -Force -Path "$CookedDir/Shaders" | Out-Null
 
 # Compile Shaders
 Write-Host "Compiling Shaders..."
-$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "Line.vert", "Line.frag")
+$Shaders = @("Basic.vert", "Basic.frag", "Mesh.vert", "Mesh.frag", "MeshInstanced.vert", "MeshInstanced.frag", "Line.vert", "Line.frag")
 foreach ($Shader in $Shaders) {
     $ShaderInput = "$EngineSource/Shaders/$Shader"
     $Output = "$EngineSource/Shaders/$Shader.spv"
