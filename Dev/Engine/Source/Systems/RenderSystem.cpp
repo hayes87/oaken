@@ -321,11 +321,17 @@ namespace Systems {
         m_LineVertices.clear();
         
         // Debug Draw Skeletons
-        m_Context.World->query<WorldTransform, AnimatorComponent>()
-            .each([&](flecs::entity e, WorldTransform& t, AnimatorComponent& anim) {
+        m_Context.World->query<WorldTransform, AnimatorComponent, MeshComponent>()
+            .each([&](flecs::entity e, WorldTransform& t, AnimatorComponent& anim, MeshComponent& meshComp) {
                 if (anim.skeleton && !anim.models.empty()) {
                     const auto& parents = anim.skeleton->skeleton.joint_parents();
                     int numJoints = anim.skeleton->skeleton.num_joints();
+                    
+                    // Apply render offset for skeleton debug drawing (same as mesh)
+                    glm::mat4 offsetMatrix = t.matrix;
+                    if (meshComp.renderOffset != glm::vec3(0.0f)) {
+                        offsetMatrix = glm::translate(offsetMatrix, meshComp.renderOffset);
+                    }
                     
                     for (int i = 0; i < numJoints; ++i) {
                         int parent = parents[i];
@@ -336,8 +342,8 @@ namespace Systems {
                             glm::mat4 parentModel;
                             memcpy(&parentModel, &anim.models[parent], sizeof(glm::mat4));
                             
-                            glm::vec3 p1 = glm::vec3(t.matrix * childModel * glm::vec4(0,0,0,1));
-                            glm::vec3 p2 = glm::vec3(t.matrix * parentModel * glm::vec4(0,0,0,1));
+                            glm::vec3 p1 = glm::vec3(offsetMatrix * childModel * glm::vec4(0,0,0,1));
+                            glm::vec3 p2 = glm::vec3(offsetMatrix * parentModel * glm::vec4(0,0,0,1));
                             
                             DrawLine(p1, p2, {1.0f, 1.0f, 0.0f});
                         }
@@ -565,7 +571,12 @@ namespace Systems {
                             glm::mat4 proj;
                         } sceneUbo;
                         
-                        sceneUbo.model = t.matrix;
+                        // Apply render offset for mesh origin adjustment
+                        glm::mat4 model = t.matrix;
+                        if (meshComp.renderOffset != glm::vec3(0.0f)) {
+                            model = glm::translate(model, meshComp.renderOffset);
+                        }
+                        sceneUbo.model = model;
                         sceneUbo.view = view;
                         sceneUbo.proj = proj;
 

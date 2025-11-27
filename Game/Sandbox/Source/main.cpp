@@ -198,20 +198,23 @@ GAME_EXPORT void GameInit(Engine& engine) {
     if (engine.GetContext().World->count<MeshComponent>() == 0 && g_TestMesh) {
         // Character spawns at Y=0 (ground collision is at Y=0)
         // The visual mesh is scaled to 0.01, physics capsule is world scale (1.8m tall)
+        // Mesh origin is at hip, so we offset it down to align feet with transform position
+        // Capsule center height = radius + height/2 = 0.3 + 0.6 = 0.9m
+        // In local mesh coords (before 0.01 scale): 0.9 / 0.01 = 90 units
         meshEntity = engine.GetContext().World->entity("TestMesh")
-            .set<LocalTransform>({ {0.0f, 0.9f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })  // Spawn capsule center at half-height
-            .set<MeshComponent>({g_TestMesh})
+            .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
+            .set<MeshComponent>({g_TestMesh, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, -90.0f, 0.0f}})  // Offset mesh down to align feet
             .set<CharacterController>({ 
                 {0.0f, 0.0f, 0.0f},  // velocity
-                3.0f,                 // moveSpeed
-                2.0f,                 // runMultiplier
+                2.0f,                 // moveSpeed
+                1.2f,                 // runMultiplier
                 10.0f,                // turnSpeed
                 0.0f,                 // targetYaw
                 CharacterState::Idle, // state
                 true                  // isGrounded
             })
             .set<CharacterPhysics>({
-                1.8f,                 // height (world scale - 1.8 meters tall)
+                1.2f,                 // height (world scale - 1.8 meters tall)
                 0.3f,                 // radius (world scale - 0.3 meters)
                 70.0f,                // mass
                 45.0f,                // max slope angle

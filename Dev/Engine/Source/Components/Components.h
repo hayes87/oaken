@@ -35,6 +35,7 @@ struct SpriteComponent {
 struct MeshComponent {
     std::shared_ptr<Resources::Mesh> mesh;
     glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // Simple color for now
+    glm::vec3 renderOffset = {0.0f, 0.0f, 0.0f}; // Offset for mesh origin (e.g., if mesh origin is at hip, set negative Y to move down)
 };
 
 struct AnimatorComponent {
