@@ -630,6 +630,171 @@ namespace Systems {
         m_LineVertices.push_back({end, color});
     }
 
+    void RenderSystem::DrawWireBox(const glm::vec3& center, const glm::vec3& halfExtents, const glm::vec3& color, const glm::quat& rotation) {
+        // 8 corners of the box
+        glm::vec3 corners[8] = {
+            {-halfExtents.x, -halfExtents.y, -halfExtents.z},
+            { halfExtents.x, -halfExtents.y, -halfExtents.z},
+            { halfExtents.x,  halfExtents.y, -halfExtents.z},
+            {-halfExtents.x,  halfExtents.y, -halfExtents.z},
+            {-halfExtents.x, -halfExtents.y,  halfExtents.z},
+            { halfExtents.x, -halfExtents.y,  halfExtents.z},
+            { halfExtents.x,  halfExtents.y,  halfExtents.z},
+            {-halfExtents.x,  halfExtents.y,  halfExtents.z},
+        };
+        
+        // Apply rotation and translation
+        for (int i = 0; i < 8; i++) {
+            corners[i] = center + rotation * corners[i];
+        }
+        
+        // Draw 12 edges
+        // Bottom face
+        DrawLine(corners[0], corners[1], color);
+        DrawLine(corners[1], corners[2], color);
+        DrawLine(corners[2], corners[3], color);
+        DrawLine(corners[3], corners[0], color);
+        // Top face
+        DrawLine(corners[4], corners[5], color);
+        DrawLine(corners[5], corners[6], color);
+        DrawLine(corners[6], corners[7], color);
+        DrawLine(corners[7], corners[4], color);
+        // Vertical edges
+        DrawLine(corners[0], corners[4], color);
+        DrawLine(corners[1], corners[5], color);
+        DrawLine(corners[2], corners[6], color);
+        DrawLine(corners[3], corners[7], color);
+    }
+
+    void RenderSystem::DrawWireSphere(const glm::vec3& center, float radius, const glm::vec3& color, int segments) {
+        const float PI = 3.14159265359f;
+        
+        // Draw 3 circles (XY, XZ, YZ planes)
+        for (int i = 0; i < segments; i++) {
+            float angle1 = (float)i / segments * 2.0f * PI;
+            float angle2 = (float)(i + 1) / segments * 2.0f * PI;
+            
+            // XY circle
+            glm::vec3 p1 = center + glm::vec3(cos(angle1) * radius, sin(angle1) * radius, 0);
+            glm::vec3 p2 = center + glm::vec3(cos(angle2) * radius, sin(angle2) * radius, 0);
+            DrawLine(p1, p2, color);
+            
+            // XZ circle
+            p1 = center + glm::vec3(cos(angle1) * radius, 0, sin(angle1) * radius);
+            p2 = center + glm::vec3(cos(angle2) * radius, 0, sin(angle2) * radius);
+            DrawLine(p1, p2, color);
+            
+            // YZ circle
+            p1 = center + glm::vec3(0, cos(angle1) * radius, sin(angle1) * radius);
+            p2 = center + glm::vec3(0, cos(angle2) * radius, sin(angle2) * radius);
+            DrawLine(p1, p2, color);
+        }
+    }
+
+    void RenderSystem::DrawWireCapsule(const glm::vec3& center, float halfHeight, float radius, const glm::vec3& color, int segments) {
+        const float PI = 3.14159265359f;
+        
+        // Top and bottom sphere centers
+        glm::vec3 topCenter = center + glm::vec3(0, halfHeight, 0);
+        glm::vec3 bottomCenter = center - glm::vec3(0, halfHeight, 0);
+        
+        // Draw vertical lines connecting spheres
+        for (int i = 0; i < 4; i++) {
+            float angle = (float)i / 4.0f * 2.0f * PI;
+            glm::vec3 offset(cos(angle) * radius, 0, sin(angle) * radius);
+            DrawLine(topCenter + offset, bottomCenter + offset, color);
+        }
+        
+        // Draw top hemisphere
+        for (int i = 0; i < segments; i++) {
+            float angle1 = (float)i / segments * 2.0f * PI;
+            float angle2 = (float)(i + 1) / segments * 2.0f * PI;
+            
+            // Horizontal circle at top
+            glm::vec3 p1 = topCenter + glm::vec3(cos(angle1) * radius, 0, sin(angle1) * radius);
+            glm::vec3 p2 = topCenter + glm::vec3(cos(angle2) * radius, 0, sin(angle2) * radius);
+            DrawLine(p1, p2, color);
+            
+            // Horizontal circle at bottom
+            p1 = bottomCenter + glm::vec3(cos(angle1) * radius, 0, sin(angle1) * radius);
+            p2 = bottomCenter + glm::vec3(cos(angle2) * radius, 0, sin(angle2) * radius);
+            DrawLine(p1, p2, color);
+        }
+        
+        // Draw hemisphere arcs (XY and ZY planes)
+        for (int i = 0; i < segments / 2; i++) {
+            float angle1 = (float)i / segments * PI;
+            float angle2 = (float)(i + 1) / segments * PI;
+            
+            // Top hemisphere - XY arc
+            glm::vec3 p1 = topCenter + glm::vec3(sin(angle1) * radius, cos(angle1) * radius, 0);
+            glm::vec3 p2 = topCenter + glm::vec3(sin(angle2) * radius, cos(angle2) * radius, 0);
+            DrawLine(p1, p2, color);
+            
+            // Top hemisphere - ZY arc
+            p1 = topCenter + glm::vec3(0, cos(angle1) * radius, sin(angle1) * radius);
+            p2 = topCenter + glm::vec3(0, cos(angle2) * radius, sin(angle2) * radius);
+            DrawLine(p1, p2, color);
+            
+            // Bottom hemisphere - XY arc
+            p1 = bottomCenter + glm::vec3(sin(angle1) * radius, -cos(angle1) * radius, 0);
+            p2 = bottomCenter + glm::vec3(sin(angle2) * radius, -cos(angle2) * radius, 0);
+            DrawLine(p1, p2, color);
+            
+            // Bottom hemisphere - ZY arc
+            p1 = bottomCenter + glm::vec3(0, -cos(angle1) * radius, sin(angle1) * radius);
+            p2 = bottomCenter + glm::vec3(0, -cos(angle2) * radius, sin(angle2) * radius);
+            DrawLine(p1, p2, color);
+        }
+    }
+
+    void RenderSystem::DrawPhysicsDebug() {
+        // Draw colliders for all entities with Collider component
+        m_Context.World->query<const LocalTransform, const Collider>()
+            .each([this](flecs::entity e, const LocalTransform& transform, const Collider& collider) {
+                glm::vec3 color = {0.0f, 1.0f, 0.0f}; // Green for static
+                
+                // Check if it has a RigidBody to determine color
+                if (e.has<RigidBody>()) {
+                    const RigidBody& rb = e.get<RigidBody>();
+                    if (rb.motionType == MotionType::Dynamic) {
+                        color = {1.0f, 0.5f, 0.0f}; // Orange for dynamic
+                    } else if (rb.motionType == MotionType::Kinematic) {
+                        color = {0.0f, 0.5f, 1.0f}; // Blue for kinematic
+                    }
+                }
+                
+                glm::vec3 center = transform.position + collider.offset;
+                glm::quat rotation = glm::quat(glm::radians(transform.rotation));
+                
+                switch (collider.type) {
+                    case ColliderType::Box:
+                        DrawWireBox(center, collider.size, color, rotation);
+                        break;
+                    case ColliderType::Sphere:
+                        DrawWireSphere(center, collider.size.x, color);
+                        break;
+                    case ColliderType::Capsule:
+                        DrawWireCapsule(center, collider.size.y * 0.5f, collider.size.x, color);
+                        break;
+                    default:
+                        break;
+                }
+            });
+        
+        // Draw character physics capsules
+        m_Context.World->query<const LocalTransform, const CharacterPhysics>()
+            .each([this](flecs::entity e, const LocalTransform& transform, const CharacterPhysics& physics) {
+                glm::vec3 color = {1.0f, 1.0f, 0.0f}; // Yellow for character
+                if (physics.isOnGround) {
+                    color = {0.0f, 1.0f, 1.0f}; // Cyan when grounded
+                }
+                
+                // Character capsule center is at transform position
+                DrawWireCapsule(transform.position, physics.height * 0.5f, physics.radius, color);
+            });
+    }
+
     void RenderSystem::EndFrame() {
         m_RenderDevice.EndFrame();
     }

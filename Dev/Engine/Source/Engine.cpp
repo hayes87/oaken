@@ -156,6 +156,11 @@ bool Engine::Step() {
         m_RenderSystem->BeginFrame();
         m_RenderSystem->DrawScene(alpha);
         
+        // Debug: Draw physics colliders
+        if (m_DebugPhysics) {
+            m_RenderSystem->DrawPhysicsDebug();
+        }
+        
         if (m_EditorMode) {
             m_EditorSystem->DrawUI(m_Context.World);
         }
