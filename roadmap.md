@@ -99,12 +99,20 @@
 ## Phase 6: Advanced Rendering (PBR & Forward+)
 
 ### Core Rendering Architecture
-- [ ] **Forward+ Renderer (Tiled Forward)**:
-    - [ ] Depth pre-pass for early Z rejection.
-    - [ ] Screen-space tile grid (e.g., 16x16 pixel tiles).
-    - [ ] Compute shader for light culling per tile.
-    - [ ] Per-tile light index list stored in SSBO/buffer.
-    - [ ] Forward pass reads tile light lists for shading.
+- [x] **Forward+ Renderer (Tiled Forward) - Infrastructure**:
+    - [x] Depth-only vertex/fragment shaders (DepthOnly.vert/frag).
+    - [x] Depth pre-pass pipeline in RenderSystem.
+    - [x] Light culling compute shader (LightCulling.comp).
+    - [x] Light culling compute pipeline with proper SDL_GPU bindings.
+    - [x] Forward+ fragment shader (MeshInstancedForwardPlus.frag).
+    - [x] Forward+ graphics pipeline with storage buffer bindings.
+    - [x] RenderDevice Forward+ buffer infrastructure (tile indices, light buffer).
+- [ ] **Forward+ Renderer (Integration)**:
+    - [ ] Enable depth pre-pass in render loop.
+    - [ ] Update light buffer with scene point lights.
+    - [ ] Dispatch light culling compute before main pass.
+    - [ ] Switch to Forward+ pipeline for main rendering.
+    - [ ] Bind tile light buffers to fragment shader.
     - [ ] Tile debug visualization (optional).
 - [x] **HDR Pipeline**:
     - [x] HDR render targets (RGBA16F).
