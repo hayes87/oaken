@@ -197,13 +197,12 @@ GAME_EXPORT void GameInit(Engine& engine) {
     flecs::entity meshEntity;
     if (engine.GetContext().World->count<MeshComponent>() == 0 && g_TestMesh) {
         // Character spawns at Y=0 (ground collision is at Y=0)
-        // The visual mesh is scaled to 0.01, physics capsule is world scale (1.8m tall)
+        // The mesh is pre-scaled during cooking (cm to meters), so scale is 1.0
         // Mesh origin is at hip, so we offset it down to align feet with transform position
         // Capsule center height = radius + height/2 = 0.3 + 0.6 = 0.9m
-        // In local mesh coords (before 0.01 scale): 0.9 / 0.01 = 90 units
         meshEntity = engine.GetContext().World->entity("TestMesh")
-            .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.01f, 0.01f, 0.01f} })
-            .set<MeshComponent>({g_TestMesh, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, -90.0f, 0.0f}})  // Offset mesh down to align feet
+            .set<LocalTransform>({ {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+            .set<MeshComponent>({g_TestMesh, {1.0f, 1.0f, 1.0f, 1.0f}, {0.0f, -0.9f, 0.0f}})  // Offset mesh down to align feet (hip is at center of capsule at 0.9m)
             .set<CharacterController>({ 
                 {0.0f, 0.0f, 0.0f},  // velocity
                 2.0f,                 // moveSpeed

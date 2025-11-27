@@ -98,6 +98,16 @@ void RecurseSkeleton(const aiNode* node, ozz::animation::offline::RawSkeleton::J
     }
 }
 
+// Scale all translations in a skeleton hierarchy
+void ScaleSkeletonTranslations(ozz::animation::offline::RawSkeleton::Joint& joint, float scale) {
+    joint.transform.translation.x *= scale;
+    joint.transform.translation.y *= scale;
+    joint.transform.translation.z *= scale;
+    for (auto& child : joint.children) {
+        ScaleSkeletonTranslations(child, scale);
+    }
+}
+
 void RecurseMesh(const aiNode* node, const glm::mat4& parentTransform, const aiScene* scene, 
                  std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
                  uint32_t& indexOffset, const std::unordered_map<std::string, int>& joint_map, int& matchedBones,
@@ -230,8 +240,12 @@ void RecurseMesh(const aiNode* node, const glm::mat4& parentTransform, const aiS
     }
 }
 
-bool CookSkeleton(const fs::path& input, const fs::path& output) {
-    std::cout << "[Cooker] Processing Skeleton: " << input << " -> " << output << std::endl;
+bool CookSkeleton(const fs::path& input, const fs::path& output, float scale = 1.0f) {
+    std::cout << "[Cooker] Processing Skeleton: " << input << " -> " << output;
+    if (scale != 1.0f) {
+        std::cout << " [scale=" << scale << "]";
+    }
+    std::cout << std::endl;
 
     Assimp::Importer importer;
     
@@ -250,6 +264,13 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
     ozz::animation::offline::RawSkeleton raw_skeleton;
     raw_skeleton.roots.resize(1);
     RecurseSkeleton(scene->mRootNode, raw_skeleton.roots[0]);
+    
+    // Apply scale to skeleton translations
+    if (scale != 1.0f) {
+        for (auto& root : raw_skeleton.roots) {
+            ScaleSkeletonTranslations(root, scale);
+        }
+    }
 
     ozz::animation::offline::SkeletonBuilder builder;
     ozz::unique_ptr<ozz::animation::Skeleton> skeleton = builder(raw_skeleton);
@@ -289,8 +310,12 @@ bool CookSkeleton(const fs::path& input, const fs::path& output) {
     return true;
 }
 
-bool CookAnimation(const fs::path& input, const fs::path& output, const fs::path& refSkeletonPath = "") {
-    std::cout << "[Cooker] Processing Animation: " << input << " -> " << output << std::endl;
+bool CookAnimation(const fs::path& input, const fs::path& output, const fs::path& refSkeletonPath = "", float scale = 1.0f) {
+    std::cout << "[Cooker] Processing Animation: " << input << " -> " << output;
+    if (scale != 1.0f) {
+        std::cout << " [scale=" << scale << "]";
+    }
+    std::cout << std::endl;
 
     Assimp::Importer importer;
     
@@ -383,12 +408,12 @@ bool CookAnimation(const fs::path& input, const fs::path& output, const fs::path
         
         ozz::animation::offline::RawAnimation::JointTrack& track = raw_animation.tracks[joint_index];
         
-        // Position keys - time in seconds (0 to duration)
+        // Position keys - time in seconds (0 to duration), with scale applied
         for (unsigned int k = 0; k < channel->mNumPositionKeys; ++k) {
             const aiVectorKey& key = channel->mPositionKeys[k];
             ozz::animation::offline::RawAnimation::TranslationKey out_key;
             out_key.time = (float)(key.mTime / anim->mTicksPerSecond);
-            out_key.value = ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z);
+            out_key.value = ozz::math::Float3(key.mValue.x * scale, key.mValue.y * scale, key.mValue.z * scale);
             track.translations.push_back(out_key);
         }
         
@@ -415,6 +440,8 @@ bool CookAnimation(const fs::path& input, const fs::path& output, const fs::path
     int tracksInitialized = 0;
     
     // First, extract rest poses from skeleton's SoA format
+    // Note: The skeleton rest poses are already scaled when the skeleton was cooked,
+    // so we don't need to scale them again here. They're in the correct units.
     std::vector<ozz::math::Transform> restPoses(skeleton->num_joints());
     for (int j = 0; j < skeleton->num_joints(); ++j) {
         int soaIndex = j / 4;
@@ -631,8 +658,12 @@ bool CookTexture(const fs::path& input, const fs::path& output) {
     }
 }
 
-bool CookMesh(const fs::path& input, const fs::path& output) {
-    std::cout << "[Cooker] Processing Mesh (COMPACT JOINTS): " << input << " -> " << output << std::endl;
+bool CookMesh(const fs::path& input, const fs::path& output, float scale = 1.0f) {
+    std::cout << "[Cooker] Processing Mesh (COMPACT JOINTS): " << input << " -> " << output;
+    if (scale != 1.0f) {
+        std::cout << " [scale=" << scale << "]";
+    }
+    std::cout << std::endl;
 
     Assimp::Importer importer;
     
@@ -712,10 +743,16 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
         skelToCompact[skelIdx] = compactIdx++;
     }
     
-    // Build COMPACT inverse bind matrices
+    // Build COMPACT inverse bind matrices (with scale applied to translations)
     std::vector<glm::mat4> compactIBMs;
     for (int skelIdx : usedSkeletonIndices) {
-        compactIBMs.push_back(skelIndexToIBM[skelIdx]);
+        glm::mat4 ibm = skelIndexToIBM[skelIdx];
+        // Scale the translation component of the IBM
+        // The IBM transforms from mesh space to bone space, so we need to scale its translation
+        ibm[3][0] *= scale;
+        ibm[3][1] *= scale;
+        ibm[3][2] *= scale;
+        compactIBMs.push_back(ibm);
     }
     
     // ============================================
@@ -749,7 +786,8 @@ bool CookMesh(const fs::path& input, const fs::path& output) {
                 if (!isSkinned) {
                     pos = globalTransform * pos;
                 }
-                vertex.position = glm::vec3(pos);
+                // Apply scale to position (e.g., 0.01 converts cm to meters)
+                vertex.position = glm::vec3(pos) * scale;
                 
                 if (mesh->HasNormals()) {
                     glm::vec3 norm(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z);
@@ -1040,21 +1078,29 @@ int main(int argc, char** argv) {
             if (type == "TEXTURE") {
                 success = CookTexture(input, output);
             } else if (type == "MESH") {
-                success = CookMesh(input, output);
+                // Optional 5th argument is scale (e.g., 0.01 to convert cm to meters)
+                float meshScale = (argc >= 6) ? std::stof(argv[5]) : 1.0f;
+                success = CookMesh(input, output, meshScale);
             } else if (type == "SCENE") {
                 success = CookScene(input, output);
             } else if (type == "SHADER") {
                 success = CookShader(input, output);
             } else if (type == "SKELETON") {
-                success = CookSkeleton(input, output);
+                // Optional 5th argument is scale (e.g., 0.01 to convert cm to meters)
+                float skelScale = (argc >= 6) ? std::stof(argv[5]) : 1.0f;
+                success = CookSkeleton(input, output, skelScale);
             } else if (type == "ANIMATION") {
-                // Optional 5th argument is reference skeleton
+                // Optional 5th argument is reference skeleton, 6th is scale
                 std::string refSkeleton = (argc >= 6) ? argv[5] : "";
-                success = CookAnimation(input, output, refSkeleton);
+                float animScale = (argc >= 7) ? std::stof(argv[6]) : 1.0f;
+                success = CookAnimation(input, output, refSkeleton, animScale);
             }
             return success ? 0 : 1;
         }
-        std::cerr << "Usage: AssetCooker COOK <TYPE> <INPUT> <OUTPUT>" << std::endl;
+        std::cerr << "Usage: AssetCooker COOK <TYPE> <INPUT> <OUTPUT> [OPTIONS]" << std::endl;
+        std::cerr << "  MESH options: <SCALE> (e.g., 0.01 to convert cm to meters)" << std::endl;
+        std::cerr << "  SKELETON options: <SCALE>" << std::endl;
+        std::cerr << "  ANIMATION options: <REF_SKELETON> <SCALE>" << std::endl;
         return 1;
     }
 
