@@ -151,16 +151,17 @@
     - [ ] Probe blending between regions.
 
 ### Lighting & Shadows
-- [ ] **Light Sources**:
-    - [ ] Directional lights with cascade shadow mapping (CSM).
+- [x] **Light Sources**:
+    - [x] Directional lights with shadow mapping.
     - [ ] Point lights with omnidirectional shadow mapping (cubemap).
     - [ ] Spot lights with perspective shadow mapping.
-    - [ ] Light attenuation (inverse square falloff).
-- [ ] **Shadow Mapping**:
-    - [ ] Directional light dynamic shadows.
+    - [x] Light attenuation (inverse square falloff).
+- [x] **Shadow Mapping**:
+    - [x] Directional light dynamic shadows.
+    - [x] Skinned mesh shadow support.
+    - [x] PCF soft shadows.
+    - [x] Hardware depth bias (orthoZO for Vulkan).
     - [ ] Static omnidirectional shadows for point lights.
-    - [ ] PCF soft shadows.
-    - [ ] Shadow bias and normal offset.
     - [ ] Cascaded Shadow Maps for large outdoor scenes.
 
 ### Post-Processing
