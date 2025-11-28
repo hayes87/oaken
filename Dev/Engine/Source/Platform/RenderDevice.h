@@ -156,8 +156,8 @@ namespace Platform {
         // Shadow mapping
         bool m_ShadowsEnabled = true;  // Shadows enabled by default
         uint32_t m_ShadowMapSize = 4096;     // Higher res shadow map
-        float m_ShadowBias = 0.005f;         // Depth bias
-        float m_ShadowNormalBias = 0.001f;   // Slope-based bias
+        float m_ShadowBias = 0.005f;        // Depth bias
+        float m_ShadowNormalBias = 0.05f;   // World-space normal offset
         int m_ShadowPcfSamples = 1;          // PCF kernel size (0=hard, 1=3x3, 2=5x5)
         SDL_GPUTexture* m_ShadowMapTexture = nullptr;
         SDL_GPUSampler* m_ShadowSampler = nullptr;  // Comparison sampler for PCF

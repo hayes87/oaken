@@ -541,6 +541,7 @@ namespace Platform {
         }
         
         // Create comparison sampler for PCF shadow filtering
+        // LESS_OR_EQUAL: returns 1.0 when reference <= stored (fragment is closer/same = lit)
         SDL_GPUSamplerCreateInfo samplerInfo = {};
         samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
         samplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;

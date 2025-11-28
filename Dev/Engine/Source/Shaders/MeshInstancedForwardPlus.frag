@@ -74,15 +74,24 @@ const vec3 materialSpecular = vec3(0.5);
 float calculateShadow(vec3 fragPosWorld, vec3 normal) {
     if (uniforms.shadowsEnabled == 0) return 1.0;
     
-    // Transform to light space
+    // Get light direction
+    vec3 lightDir = normalize(-uniforms.dirLightDir.xyz);
+    float NdotL = dot(normal, lightDir);
+    
+    // Back-facing surfaces don't need shadow map lookup
+    if (NdotL <= 0.0) {
+        return 1.0;  // Let diffuse lighting handle darkness
+    }
+    
+    // Transform to light space (no offsets - just raw position)
     vec4 fragPosLightSpace = uniforms.lightSpaceMatrix * vec4(fragPosWorld, 1.0);
     
     // Perspective divide (for ortho this is basically a no-op)
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     
-    // Transform from NDC [-1,1] to texture coords [0,1]
+    // Transform XY from NDC [-1,1] to texture coords [0,1]
+    // Z is already in [0,1] since we use orthoZO projection
     projCoords.xy = projCoords.xy * 0.5 + 0.5;
-    projCoords.z = projCoords.z * 0.5 + 0.5;  // Also remap Z from [-1,1] to [0,1]
     // Flip Y for Vulkan texture coordinates
     projCoords.y = 1.0 - projCoords.y;
     
@@ -93,9 +102,9 @@ float calculateShadow(vec3 fragPosWorld, vec3 normal) {
         return 1.0; // Outside shadow frustum = fully lit
     }
     
-    // Simple constant bias
-    float bias = uniforms.shadowBias;
-    float currentDepth = projCoords.z - bias;
+    // Use hardware depth bias (applied during shadow map generation)
+    // The comparison sampler handles the actual test
+    float currentDepth = projCoords.z;
     
     // PCF shadow sampling
     float shadow = 0.0;

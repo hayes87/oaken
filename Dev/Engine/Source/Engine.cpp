@@ -422,7 +422,7 @@ void Engine::RenderDebugMenu() {
             }
             
             float shadowBias = m_RenderDevice->GetShadowBias();
-            if (ImGui::SliderFloat("Shadow Bias", &shadowBias, 0.0f, 0.05f, "%.4f")) {
+            if (ImGui::SliderFloat("Shadow Bias", &shadowBias, 0.0f, 0.01f, "%.5f")) {
                 m_RenderDevice->SetShadowBias(shadowBias);
             }
             if (ImGui::IsItemHovered()) {

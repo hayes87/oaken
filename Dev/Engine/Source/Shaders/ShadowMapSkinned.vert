@@ -25,31 +25,17 @@ layout(std140, set = 1, binding = 2) uniform SkinUniforms {
 } skin;
 
 void main() {
-    // Get bone indices
-    ivec4 boneIds = ivec4(inBoneIndices);
+    // Convert float indices to int (clamped to valid range)
+    ivec4 boneIds = clamp(ivec4(inBoneIndices), 0, 255);
     
-    // Calculate skinned position
-    vec4 skinnedPos = vec4(0.0);
+    // Build skin matrix from weighted bone matrices (same algorithm as Mesh.vert)
+    mat4 skinMatrix = inBoneWeights.x * skin.boneMatrices[boneIds.x] +
+                      inBoneWeights.y * skin.boneMatrices[boneIds.y] +
+                      inBoneWeights.z * skin.boneMatrices[boneIds.z] +
+                      inBoneWeights.w * skin.boneMatrices[boneIds.w];
     
-    // Apply bone transforms weighted by bone weights
-    if (inBoneWeights.x > 0.0) {
-        skinnedPos += inBoneWeights.x * (skin.boneMatrices[boneIds.x] * vec4(inPosition, 1.0));
-    }
-    if (inBoneWeights.y > 0.0) {
-        skinnedPos += inBoneWeights.y * (skin.boneMatrices[boneIds.y] * vec4(inPosition, 1.0));
-    }
-    if (inBoneWeights.z > 0.0) {
-        skinnedPos += inBoneWeights.z * (skin.boneMatrices[boneIds.z] * vec4(inPosition, 1.0));
-    }
-    if (inBoneWeights.w > 0.0) {
-        skinnedPos += inBoneWeights.w * (skin.boneMatrices[boneIds.w] * vec4(inPosition, 1.0));
-    }
-    
-    // Fallback if no weights (shouldn't happen for skinned mesh)
-    float totalWeight = inBoneWeights.x + inBoneWeights.y + inBoneWeights.z + inBoneWeights.w;
-    if (totalWeight < 0.001) {
-        skinnedPos = vec4(inPosition, 1.0);
-    }
+    // Apply skinning to position
+    vec4 skinnedPos = skinMatrix * vec4(inPosition, 1.0);
     
     // Apply model matrix then light space matrix
     vec4 worldPos = modelUbo.model * skinnedPos;

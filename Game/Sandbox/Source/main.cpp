@@ -409,6 +409,8 @@ GAME_EXPORT void GameInit(Engine& engine) {
     }
     
     // Add multiple point lights to test Forward+ rendering
+    // DISABLED: Point lights temporarily disabled to debug shadows
+    /*
     if (engine.GetContext().World->count<PointLight>() == 0) {
         // Create a grid of colored point lights
         const int numLightsPerRow = 4;
@@ -446,6 +448,7 @@ GAME_EXPORT void GameInit(Engine& engine) {
         }
         LOG_INFO("Created {} point lights for Forward+ testing", lightIndex);
     }
+    */
 
     // Create a test entity with AttributeSet if it doesn't exist
     if (engine.GetContext().World->count<AttributeSet>() == 0) {

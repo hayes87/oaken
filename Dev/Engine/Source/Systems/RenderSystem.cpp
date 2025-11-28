@@ -180,8 +180,8 @@ namespace Systems {
 
         // Vertex Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 2 Uniform Buffers (Scene + Skin)
         auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 2);
-        // Fragment Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (Lights)
-        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 1);
+        // Fragment Shader: 1 Sampler (shadow map), 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (Lights)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 0, 1);
 
         if (!vertShader || !fragShader) {
             LOG_CORE_ERROR("Failed to load mesh shaders!");
@@ -963,9 +963,9 @@ namespace Systems {
         
         pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         
-        // Front-face culling for shadow map (reduces peter-panning)
+        // Back-face culling for shadow map (use normal culling, apply bias for acne)
         pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
         pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
         
         // Depth bias to reduce shadow acne
@@ -1074,9 +1074,9 @@ namespace Systems {
         
         pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         
-        // Front-face culling for shadow map
+        // Back-face culling for shadow map
         pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
-        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
         pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
         
         // Depth bias
@@ -1328,9 +1328,8 @@ namespace Systems {
         glm::vec3 lightPos = shadowCenter - lightDir * shadowDistance;
         glm::mat4 lightView = glm::lookAt(lightPos, shadowCenter, glm::vec3(0.0f, 1.0f, 0.0f));
         
-        // Orthographic projection
-        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, shadowNear, shadowFar);
-        // No flip here - handled in shader
+        // Orthographic projection - use ZO (zero-to-one) for Vulkan's depth range
+        glm::mat4 lightProj = glm::orthoZO(-orthoSize, orthoSize, -orthoSize, orthoSize, shadowNear, shadowFar);
         
         // Store for use in main pass
         m_LightSpaceMatrix = lightProj * lightView;
@@ -1820,6 +1819,12 @@ namespace Systems {
                     int numPointLights;
                     float shininess;
                     glm::vec2 _padding;
+                    // Shadow parameters (must match Mesh.frag LightUniforms)
+                    glm::mat4 lightSpaceMatrix;
+                    float shadowBias;
+                    float shadowNormalBias;
+                    int32_t pcfSamples;
+                    int32_t shadowsEnabled;
                 } lightUbo;
                 
                 // Default directional light
@@ -1850,13 +1855,24 @@ namespace Systems {
                         }
                     });
                 lightUbo.numPointLights = pointLightIdx;
+                
+                // Shadow parameters
+                lightUbo.lightSpaceMatrix = m_LightSpaceMatrix;
+                lightUbo.shadowBias = m_RenderDevice.GetShadowBias();
+                lightUbo.shadowNormalBias = m_RenderDevice.GetShadowNormalBias();
+                lightUbo.pcfSamples = m_RenderDevice.GetShadowPcfSamples();
+                lightUbo.shadowsEnabled = m_RenderDevice.IsShadowsEnabled() ? 1 : 0;
 
                 // Render batched static meshes
                 if (m_RenderDevice.IsForwardPlusEnabled() && m_ForwardPlusPipeline) {
                     // Use Forward+ path with tile-based light culling
+                    static bool loggedPath = false;
+                    if (!loggedPath) { LOG_CORE_INFO("Using Forward+ rendering path"); loggedPath = true; }
                     RenderBatchesForwardPlus(pass, view, proj);
                 } else {
                     // Traditional forward path (limited to 8 point lights)
+                    static bool loggedPath2 = false;
+                    if (!loggedPath2) { LOG_CORE_INFO("Using Traditional rendering path"); loggedPath2 = true; }
                     RenderBatches(pass, view, proj, &lightUbo, sizeof(lightUbo));
                 }
                 
@@ -2228,6 +2244,15 @@ namespace Systems {
             float _pad2;
             float _pad3;
         } fragUbo;
+        static_assert(sizeof(ForwardPlusFragmentUBO) == 176, "UBO size mismatch with shader!");
+        
+        // Log once for debugging
+        static bool loggedOnce = false;
+        if (!loggedOnce) {
+            LOG_CORE_INFO("ForwardPlusFragmentUBO size: {}, shadowBias offset: {}", 
+                sizeof(ForwardPlusFragmentUBO), offsetof(ForwardPlusFragmentUBO, shadowBias));
+            loggedOnce = true;
+        }
         
         // Default values
         fragUbo.dirLightDir = glm::vec4(-0.5f, -1.0f, -0.3f, 1.0f);
@@ -2332,6 +2357,12 @@ namespace Systems {
                 
                 // Push Light UBO
                 SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, lightUbo, lightUboSize);
+                
+                // Bind shadow map sampler (set 2, binding 0)
+                SDL_GPUTextureSamplerBinding shadowBinding;
+                shadowBinding.texture = m_RenderDevice.GetShadowMapTexture();
+                shadowBinding.sampler = m_RenderDevice.GetShadowSampler();
+                SDL_BindGPUFragmentSamplers(pass, 0, &shadowBinding, 1);
                 
                 // Bind buffers
                 SDL_GPUBufferBinding vertexBinding;
