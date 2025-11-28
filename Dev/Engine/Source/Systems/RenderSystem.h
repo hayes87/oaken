@@ -56,7 +56,8 @@ namespace Systems {
         void Init();
         void BeginFrame(bool drawSkeleton = true);
         void DrawScene(double alpha);
-        void EndFrame();
+        void EndFrame();      // Runs bloom + tone mapping, leaves render pass open for UI
+        void FinishFrame();   // Ends render pass and submits command buffer
 
         void DrawLine(const glm::vec3& start, const glm::vec3& end, const glm::vec3& color);
         
@@ -105,6 +106,7 @@ namespace Systems {
         void RenderToneMappingPass();  // Tone map HDR -> Swapchain
         void RenderDepthPrePass(const glm::mat4& view, const glm::mat4& proj);  // Depth pre-pass for Forward+
         void DispatchLightCulling(const glm::mat4& view, const glm::mat4& proj);  // Light culling compute
+        void UpdateLightBufferForForwardPlus();  // Update GPU light buffer for Forward+ culling
         
         void BuildBatches();
         void RenderBatches(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj, const void* lightUbo, size_t lightUboSize);
@@ -117,9 +119,19 @@ namespace Systems {
         SDL_GPUComputePipeline* m_LightCullingPipeline = nullptr;
         SDL_GPUSampler* m_DepthSampler = nullptr;  // For sampling depth in compute
         
+        // Bloom pipelines
+        SDL_GPUGraphicsPipeline* m_BloomBrightPassPipeline = nullptr;
+        SDL_GPUGraphicsPipeline* m_BloomBlurPipeline = nullptr;
+        SDL_GPUGraphicsPipeline* m_BloomCompositePipeline = nullptr;
+        SDL_GPUTexture* m_BloomResultTexture = nullptr;  // Points to final blurred bloom texture
+        
         // Forward+ rendering method
         void CreateForwardPlusPipeline();
         void RenderBatchesForwardPlus(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj);
+        
+        // Bloom rendering methods
+        void CreateBloomPipelines();
+        void RenderBloomPass();  // Full bloom pass (bright extract + blur + composite)
     };
 
 }

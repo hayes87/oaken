@@ -37,6 +37,10 @@ namespace Platform {
 
     void RenderDevice::Shutdown() {
         if (m_Device) {
+            if (m_DepthSampler) {
+                SDL_ReleaseGPUSampler(m_Device, m_DepthSampler);
+                m_DepthSampler = nullptr;
+            }
             if (m_TileLightIndicesBuffer) {
                 SDL_ReleaseGPUBuffer(m_Device, m_TileLightIndicesBuffer);
                 m_TileLightIndicesBuffer = nullptr;
@@ -44,6 +48,18 @@ namespace Platform {
             if (m_LightBuffer) {
                 SDL_ReleaseGPUBuffer(m_Device, m_LightBuffer);
                 m_LightBuffer = nullptr;
+            }
+            if (m_BloomBrightTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_BloomBrightTexture);
+                m_BloomBrightTexture = nullptr;
+            }
+            if (m_BloomBlurTextureA) {
+                SDL_ReleaseGPUTexture(m_Device, m_BloomBlurTextureA);
+                m_BloomBlurTextureA = nullptr;
+            }
+            if (m_BloomBlurTextureB) {
+                SDL_ReleaseGPUTexture(m_Device, m_BloomBlurTextureB);
+                m_BloomBlurTextureB = nullptr;
             }
             if (m_HDRTexture) {
                 SDL_ReleaseGPUTexture(m_Device, m_HDRTexture);
@@ -69,7 +85,7 @@ namespace Platform {
         SDL_GPUTextureCreateInfo createInfo = {};
         createInfo.type = SDL_GPU_TEXTURETYPE_2D;
         createInfo.format = SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
-        createInfo.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;  // For Forward+ depth read
         createInfo.width = width;
         createInfo.height = height;
         createInfo.layer_count_or_depth = 1;
@@ -97,6 +113,44 @@ namespace Platform {
         m_HDRTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
         if (m_HDRTexture) {
             std::cout << "HDR Texture created: " << width << "x" << height << " (RGBA16F)" << std::endl;
+        }
+    }
+
+    void RenderDevice::CreateBloomTextures(uint32_t width, uint32_t height) {
+        // Bloom textures at half resolution for performance
+        uint32_t bloomWidth = width / 2;
+        uint32_t bloomHeight = height / 2;
+        
+        // Release existing textures
+        if (m_BloomBrightTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_BloomBrightTexture);
+        }
+        if (m_BloomBlurTextureA) {
+            SDL_ReleaseGPUTexture(m_Device, m_BloomBlurTextureA);
+        }
+        if (m_BloomBlurTextureB) {
+            SDL_ReleaseGPUTexture(m_Device, m_BloomBlurTextureB);
+        }
+        
+        SDL_GPUTextureCreateInfo createInfo = {};
+        createInfo.type = SDL_GPU_TEXTURETYPE_2D;
+        createInfo.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format for bloom
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        createInfo.width = bloomWidth;
+        createInfo.height = bloomHeight;
+        createInfo.layer_count_or_depth = 1;
+        createInfo.num_levels = 1;
+        createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        
+        m_BloomBrightTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        m_BloomBlurTextureA = SDL_CreateGPUTexture(m_Device, &createInfo);
+        m_BloomBlurTextureB = SDL_CreateGPUTexture(m_Device, &createInfo);
+        
+        m_BloomWidth = bloomWidth;
+        m_BloomHeight = bloomHeight;
+        
+        if (m_BloomBrightTexture && m_BloomBlurTextureA && m_BloomBlurTextureB) {
+            std::cout << "Bloom textures created: " << bloomWidth << "x" << bloomHeight << " (RGBA16F)" << std::endl;
         }
     }
 
@@ -138,6 +192,13 @@ namespace Platform {
             CreateHDRTexture(w, h);
             m_HDRWidth = w;
             m_HDRHeight = h;
+        }
+        
+        // Recreate Bloom textures if size changed or don't exist (only if bloom enabled)
+        uint32_t bloomWidth = w / 2;
+        uint32_t bloomHeight = h / 2;
+        if (m_BloomEnabled && (!m_BloomBrightTexture || bloomWidth != m_BloomWidth || bloomHeight != m_BloomHeight)) {
+            CreateBloomTextures(w, h);
         }
     }
 
@@ -308,6 +369,18 @@ namespace Platform {
                 std::cout << "Forward+ light buffer created: " << bufferInfo.size / 1024 << " KB" << std::endl;
             }
         }
+        
+        // Create depth sampler if it doesn't exist
+        if (!m_DepthSampler) {
+            SDL_GPUSamplerCreateInfo samplerInfo = {};
+            samplerInfo.min_filter = SDL_GPU_FILTER_NEAREST;
+            samplerInfo.mag_filter = SDL_GPU_FILTER_NEAREST;
+            samplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+            samplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            samplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            m_DepthSampler = SDL_CreateGPUSampler(m_Device, &samplerInfo);
+        }
     }
 
     bool RenderDevice::BeginDepthPrePass() {
@@ -364,8 +437,15 @@ namespace Platform {
         SDL_ReleaseGPUTransferBuffer(m_Device, transferBuffer);
     }
 
+    void RenderDevice::EnsureForwardPlusBuffers() {
+        if (m_RenderWidth > 0 && m_RenderHeight > 0) {
+            CreateForwardPlusBuffers(m_RenderWidth, m_RenderHeight);
+        }
+    }
+
     void RenderDevice::DispatchLightCulling(SDL_GPUComputePipeline* cullingPipeline, const glm::mat4& view, const glm::mat4& proj) {
         if (!m_CommandBuffer || !cullingPipeline || !m_ForwardPlusEnabled) return;
+        if (!m_DepthTexture || !m_DepthSampler) return;  // Need depth texture for culling
         
         // Ensure Forward+ buffers exist
         CreateForwardPlusBuffers(m_RenderWidth, m_RenderHeight);
@@ -386,7 +466,13 @@ namespace Platform {
         
         SDL_BindGPUComputePipeline(computePass, cullingPipeline);
         
-        // Bind light buffer (read-only storage)
+        // Bind depth texture sampler (set 0, binding 0 in compute shader)
+        SDL_GPUTextureSamplerBinding depthBinding = {};
+        depthBinding.texture = m_DepthTexture;
+        depthBinding.sampler = m_DepthSampler;
+        SDL_BindGPUComputeSamplers(computePass, 0, &depthBinding, 1);
+        
+        // Bind light buffer (read-only storage at set 0, binding 1)
         SDL_GPUBuffer* storageBuffers[] = { m_LightBuffer };
         SDL_BindGPUComputeStorageBuffers(computePass, 0, storageBuffers, 1);
         

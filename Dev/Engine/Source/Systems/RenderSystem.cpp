@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <flecs.h>
 #include <iostream>
+#include <cmath>
 #include "../Components/Components.h"
 #include "../Core/Log.h"
 #include "../Resources/Mesh.h"
@@ -35,6 +36,15 @@ namespace Systems {
         if (m_ToneMappingPipeline) {
             SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_ToneMappingPipeline);
         }
+        if (m_BloomBrightPassPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_BloomBrightPassPipeline);
+        }
+        if (m_BloomBlurPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_BloomBlurPipeline);
+        }
+        if (m_BloomCompositePipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_BloomCompositePipeline);
+        }
         if (m_Sampler) {
             SDL_ReleaseGPUSampler(m_RenderDevice.GetDevice(), m_Sampler);
         }
@@ -55,6 +65,7 @@ namespace Systems {
         CreateInstancedMeshPipeline();
         CreateLinePipeline();
         CreateToneMappingPipeline();
+        CreateBloomPipelines();
         CreateDepthOnlyPipeline();
         CreateLightCullingPipeline();
         CreateForwardPlusPipeline();
@@ -499,8 +510,8 @@ namespace Systems {
         
         // Fullscreen vertex shader: no vertex input, 0 uniform buffers
         auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
-        // ToneMapping fragment shader: 1 sampler (HDR texture), 1 uniform buffer (params)
-        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 0, 1);
+        // ToneMapping fragment shader: 2 samplers (HDR + bloom), 1 uniform buffer (params)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 0, 1);
         
         if (!vertShader || !fragShader) {
             LOG_CORE_ERROR("Failed to load tone mapping shaders!");
@@ -539,6 +550,116 @@ namespace Systems {
             LOG_CORE_ERROR("Failed to create tone mapping pipeline!");
         } else {
             LOG_CORE_INFO("Tone Mapping Pipeline Created Successfully!");
+        }
+    }
+
+    void RenderSystem::CreateBloomPipelines() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        bool isD3D12 = std::string(driver) == "direct3d12";
+        
+        // ========== Bright Pass Pipeline ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/BrightPass.frag.dxil" : "Assets/Shaders/BrightPass.frag.spv";
+            
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load bright pass shaders - Bloom will be unavailable");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format
+                colorTargetDesc.blend_state.enable_blend = false;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_BloomBrightPassPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_BloomBrightPassPipeline) {
+                    LOG_CORE_INFO("Bloom Bright Pass Pipeline Created Successfully!");
+                }
+            }
+        }
+        
+        // ========== Blur Pipeline ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/BloomBlur.frag.dxil" : "Assets/Shaders/BloomBlur.frag.spv";
+            
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load blur shaders - Bloom will be unavailable");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+                colorTargetDesc.blend_state.enable_blend = false;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_BloomBlurPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_BloomBlurPipeline) {
+                    LOG_CORE_INFO("Bloom Blur Pipeline Created Successfully!");
+                }
+            }
+        }
+        
+        // ========== Composite Pipeline ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/BloomComposite.frag.dxil" : "Assets/Shaders/BloomComposite.frag.spv";
+            
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            // Composite shader: 2 samplers (scene + bloom), 1 uniform buffer
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load bloom composite shaders - Bloom will be unavailable");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                // Composite outputs to HDR texture (for further tone mapping)
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+                colorTargetDesc.blend_state.enable_blend = false;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_BloomCompositePipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_BloomCompositePipeline) {
+                    LOG_CORE_INFO("Bloom Composite Pipeline Created Successfully!");
+                }
+            }
         }
     }
 
@@ -906,6 +1027,59 @@ namespace Systems {
         m_RenderDevice.DispatchLightCulling(m_LightCullingPipeline, view, proj);
     }
 
+    void RenderSystem::UpdateLightBufferForForwardPlus() {
+        // Structure matching the shader's LightBuffer layout
+        struct GPUPointLight {
+            glm::vec4 positionRadius;  // xyz = position, w = radius
+            glm::vec4 colorIntensity;  // rgb = color, w = intensity
+        };
+        
+        // Header: numLights + 3 padding ints = 16 bytes
+        struct LightBufferHeader {
+            int32_t numLights;
+            int32_t _pad0;
+            int32_t _pad1;
+            int32_t _pad2;
+        };
+        
+        constexpr int MAX_POINT_LIGHTS = 1024;
+        
+        // Collect all point lights
+        std::vector<GPUPointLight> lights;
+        lights.reserve(MAX_POINT_LIGHTS);
+        
+        m_Context.World->query<const WorldTransform, const PointLight>()
+            .each([&](flecs::entity e, const WorldTransform& t, const PointLight& light) {
+                if (lights.size() < MAX_POINT_LIGHTS) {
+                    glm::vec3 pos = glm::vec3(t.matrix[3]);
+                    GPUPointLight gpuLight;
+                    gpuLight.positionRadius = glm::vec4(pos, light.radius);
+                    gpuLight.colorIntensity = glm::vec4(light.color, light.intensity);
+                    lights.push_back(gpuLight);
+                }
+            });
+        
+        // Build buffer data: header + lights
+        std::vector<uint8_t> bufferData;
+        bufferData.resize(sizeof(LightBufferHeader) + lights.size() * sizeof(GPUPointLight));
+        
+        LightBufferHeader header;
+        header.numLights = static_cast<int32_t>(lights.size());
+        header._pad0 = 0;
+        header._pad1 = 0;
+        header._pad2 = 0;
+        
+        memcpy(bufferData.data(), &header, sizeof(header));
+        if (!lights.empty()) {
+            memcpy(bufferData.data() + sizeof(header), lights.data(), lights.size() * sizeof(GPUPointLight));
+        }
+        
+        // Ensure Forward+ buffers exist before updating
+        m_RenderDevice.EnsureForwardPlusBuffers();
+        
+        m_RenderDevice.UpdateLightBuffer(bufferData.data(), static_cast<uint32_t>(lights.size()));
+    }
+
     void RenderSystem::BeginFrame(bool drawSkeleton) {
         // Cleanup resources from previous frames
         for (auto b : m_BuffersToDelete) SDL_ReleaseGPUBuffer(m_RenderDevice.GetDevice(), b);
@@ -1150,7 +1324,45 @@ namespace Systems {
 
         SDL_EndGPUCopyPass(copyPass);
 
-        // 2. Begin Render Pass
+        // Get camera matrices for all passes
+        glm::mat4 view = glm::mat4(1.0f);
+        glm::mat4 proj = glm::mat4(1.0f);
+        glm::vec3 cameraPosition = glm::vec3(0, 2, 5);
+        float aspectRatio = m_RenderDevice.GetWindow()->GetAspectRatio();
+        
+        bool cameraFound = false;
+        m_Context.World->query<LocalTransform, const CameraComponent>()
+            .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
+                if (cam.isPrimary && !cameraFound) {
+                    cameraPosition = t.position;
+                    glm::mat4 camMatrix = glm::translate(glm::mat4(1.0f), t.position);
+                    camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.y), glm::vec3(0, 1, 0));
+                    camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.x), glm::vec3(1, 0, 0));
+                    camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
+                    view = glm::inverse(camMatrix);
+                    proj = glm::perspectiveRH_ZO(glm::radians(cam.fov), aspectRatio, cam.nearPlane, cam.farPlane);
+                    cameraFound = true;
+                }
+            });
+        
+        if (!cameraFound) {
+            view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+            proj = glm::perspectiveRH_ZO(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
+        }
+
+        // Forward+ passes (depth pre-pass + light culling)
+        if (m_RenderDevice.IsForwardPlusEnabled()) {
+            // Update light buffer for light culling
+            UpdateLightBufferForForwardPlus();
+            
+            // 2a. Depth Pre-Pass
+            RenderDepthPrePass(view, proj);
+            
+            // 2b. Light Culling Compute Pass
+            DispatchLightCulling(view, proj);
+        }
+
+        // 3. Begin Main Render Pass
         if (!m_RenderDevice.BeginRenderPass()) return;
         SDL_GPURenderPass* pass = m_RenderDevice.GetRenderPass();
 
@@ -1177,32 +1389,7 @@ namespace Systems {
             if (m_MeshPipeline) {
                 SDL_BindGPUGraphicsPipeline(pass, m_MeshPipeline);
 
-                // Camera Matrices (View/Proj)
-                glm::mat4 view = glm::mat4(1.0f);
-                glm::mat4 proj = glm::mat4(1.0f);
-                glm::vec3 cameraPosition = glm::vec3(0, 2, 5);
-                
-                float aspectRatio = m_RenderDevice.GetWindow()->GetAspectRatio();
-                
-                bool cameraFound = false;
-                m_Context.World->query<LocalTransform, const CameraComponent>()
-                    .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
-                        if (cam.isPrimary && !cameraFound) {
-                            cameraPosition = t.position;
-                            glm::mat4 camMatrix = glm::translate(glm::mat4(1.0f), t.position);
-                            camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.y), glm::vec3(0, 1, 0));
-                            camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.x), glm::vec3(1, 0, 0));
-                            camMatrix = glm::rotate(camMatrix, glm::radians(t.rotation.z), glm::vec3(0, 0, 1));
-                            view = glm::inverse(camMatrix);
-                            proj = glm::perspectiveRH_ZO(glm::radians(cam.fov), aspectRatio, cam.nearPlane, cam.farPlane);
-                            cameraFound = true;
-                        }
-                    });
-
-                if (!cameraFound) {
-                    view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
-                    proj = glm::perspectiveRH_ZO(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
-                }
+                // Camera matrices (view/proj) already calculated before render pass
 
                 // Gather lights
                 constexpr int MAX_POINT_LIGHTS = 8;
@@ -1248,10 +1435,16 @@ namespace Systems {
                     });
                 lightUbo.numPointLights = pointLightIdx;
 
-                // Render batched static meshes (using instanced pipeline)
-                RenderBatches(pass, view, proj, &lightUbo, sizeof(lightUbo));
+                // Render batched static meshes
+                if (m_RenderDevice.IsForwardPlusEnabled() && m_ForwardPlusPipeline) {
+                    // Use Forward+ path with tile-based light culling
+                    RenderBatchesForwardPlus(pass, view, proj);
+                } else {
+                    // Traditional forward path (limited to 8 point lights)
+                    RenderBatches(pass, view, proj, &lightUbo, sizeof(lightUbo));
+                }
                 
-                // Render skinned/animated meshes (using regular pipeline)
+                // Render skinned/animated meshes (still uses regular pipeline for now)
                 RenderSkinnedMeshes(pass, view, proj, &lightUbo, sizeof(lightUbo), skinData);
 
                 // Render Lines
@@ -1549,6 +1742,114 @@ namespace Systems {
         }
     }
 
+    void RenderSystem::RenderBatchesForwardPlus(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj) {
+        if (!m_ForwardPlusPipeline || !m_InstanceBuffer) {
+            return;
+        }
+        
+        // Check buffers exist
+        SDL_GPUBuffer* lightBuffer = m_RenderDevice.GetLightBuffer();
+        SDL_GPUBuffer* tileBuffer = m_RenderDevice.GetTileLightIndicesBuffer();
+        if (!lightBuffer || !tileBuffer) {
+            LOG_CORE_WARN("Forward+ buffers not available, skipping Forward+ rendering");
+            return;
+        }
+        
+        // Check if we have any batches to render
+        bool hasBatches = false;
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (!batch.instances.empty()) {
+                hasBatches = true;
+                break;
+            }
+        }
+        
+        if (!hasBatches) return;
+        
+        SDL_BindGPUGraphicsPipeline(pass, m_ForwardPlusPipeline);
+        
+        // Bind storage buffers (light buffer and tile indices) - Fragment set 2
+        SDL_GPUBuffer* storageBuffers[2] = { lightBuffer, tileBuffer };
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, storageBuffers, 2);
+        
+        // Prepare uniforms
+        struct ViewProjUBO {
+            glm::mat4 view;
+            glm::mat4 proj;
+        } viewProjUbo;
+        viewProjUbo.view = view;
+        viewProjUbo.proj = proj;
+        
+        // Forward+ fragment shader uniform (includes directional light + screen info)
+        struct ForwardPlusFragmentUBO {
+            glm::vec4 dirLightDir;      // xyz = direction, w = intensity
+            glm::vec4 dirLightColor;    // rgb = color, a = unused
+            glm::vec4 ambientColor;     // rgb = ambient, a = unused
+            glm::vec4 cameraPos;        // xyz = position, w = unused
+            glm::vec4 screenSize;       // xy = screen size, zw = 1/size
+            float shininess;
+            float _pad1;
+            float _pad2;
+            float _pad3;
+        } fragUbo;
+        
+        // Default values
+        fragUbo.dirLightDir = glm::vec4(-0.5f, -1.0f, -0.3f, 1.0f);
+        fragUbo.dirLightColor = glm::vec4(1.0f, 0.95f, 0.9f, 1.0f);
+        fragUbo.ambientColor = glm::vec4(0.15f, 0.15f, 0.2f, 1.0f);
+        fragUbo.cameraPos = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        float screenW = static_cast<float>(m_RenderDevice.GetRenderWidth());
+        float screenH = static_cast<float>(m_RenderDevice.GetRenderHeight());
+        fragUbo.screenSize = glm::vec4(screenW, screenH, 1.0f / screenW, 1.0f / screenH);
+        fragUbo.shininess = 32.0f;
+        
+        // Query directional light
+        m_Context.World->query<const DirectionalLight>()
+            .each([&](flecs::entity e, const DirectionalLight& light) {
+                fragUbo.dirLightDir = glm::vec4(light.direction, light.intensity);
+                fragUbo.dirLightColor = glm::vec4(light.color, 1.0f);
+                fragUbo.ambientColor = glm::vec4(light.ambient, 1.0f);
+            });
+        
+        // Get camera position
+        m_Context.World->query<LocalTransform, const CameraComponent>()
+            .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
+                if (cam.isPrimary) {
+                    fragUbo.cameraPos = glm::vec4(t.position, 1.0f);
+                }
+            });
+        
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (batch.instances.empty()) continue;
+            
+            // Push uniforms per batch
+            SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &viewProjUbo, sizeof(viewProjUbo));
+            SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, &fragUbo, sizeof(fragUbo));
+            
+            // Bind vertex buffers (mesh vertices + instance data with offset)
+            SDL_GPUBufferBinding bindings[2];
+            bindings[0].buffer = batch.mesh->GetVertexBuffer();
+            bindings[0].offset = 0;
+            bindings[1].buffer = m_InstanceBuffer;
+            bindings[1].offset = batch.instanceOffset * sizeof(MeshInstance);
+            
+            SDL_BindGPUVertexBuffers(pass, 0, bindings, 2);
+            
+            // Bind index buffer
+            SDL_GPUBufferBinding indexBinding;
+            indexBinding.buffer = batch.mesh->GetIndexBuffer();
+            indexBinding.offset = 0;
+            SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            
+            // Draw instanced
+            Uint32 indexCount = batch.mesh->GetIndexCount();
+            Uint32 instanceCount = static_cast<Uint32>(batch.instances.size());
+            SDL_DrawGPUIndexedPrimitives(pass, indexCount, instanceCount, 0, 0, 0);
+            
+            m_Stats.drawCalls++;
+        }
+    }
+
     void RenderSystem::RenderSkinnedMeshes(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj,
                                             const void* lightUbo, size_t lightUboSize,
                                             const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData) {
@@ -1607,6 +1908,157 @@ namespace Systems {
             });
     }
 
+    void RenderSystem::RenderBloomPass() {
+        // Check if bloom is enabled and we have all required resources
+        if (!m_RenderDevice.IsBloomEnabled() || !m_RenderDevice.IsHDREnabled()) {
+            return;
+        }
+        if (!m_BloomBrightPassPipeline || !m_BloomBlurPipeline) {
+            return;
+        }
+        if (!m_RenderDevice.IsFrameValid()) {
+            return;
+        }
+        
+        SDL_GPUTexture* hdrTexture = m_RenderDevice.GetHDRTexture();
+        SDL_GPUTexture* brightTexture = m_RenderDevice.GetBloomBrightTexture();
+        SDL_GPUTexture* blurTextureA = m_RenderDevice.GetBloomBlurTextureA();
+        SDL_GPUTexture* blurTextureB = m_RenderDevice.GetBloomBlurTextureB();
+        
+        if (!hdrTexture || !brightTexture || !blurTextureA || !blurTextureB) {
+            return;
+        }
+        
+        SDL_GPUCommandBuffer* cmdBuffer = m_RenderDevice.GetCommandBuffer();
+        if (!cmdBuffer) return;
+        
+        // End the current render pass (scene rendering is done)
+        m_RenderDevice.EndRenderPass();
+        
+        uint32_t bloomWidth = m_RenderDevice.GetRenderWidth() / 2;
+        uint32_t bloomHeight = m_RenderDevice.GetRenderHeight() / 2;
+        
+        // ========== BRIGHT PASS ==========
+        // Extract bright pixels from HDR scene into bright texture
+        {
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = brightTexture;
+            colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            colorTarget.clear_color = {0, 0, 0, 1};
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_GPUViewport viewport = {};
+            viewport.w = static_cast<float>(bloomWidth);
+            viewport.h = static_cast<float>(bloomHeight);
+            viewport.max_depth = 1.0f;
+            SDL_SetGPUViewport(pass, &viewport);
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_BloomBrightPassPipeline);
+            
+            SDL_GPUTextureSamplerBinding texBinding = {};
+            texBinding.texture = hdrTexture;
+            texBinding.sampler = m_LinearSampler;
+            SDL_BindGPUFragmentSamplers(pass, 0, &texBinding, 1);
+            
+            struct BrightPassParams {
+                float threshold;
+                float softThreshold;
+                float _padding1;
+                float _padding2;
+            } params;
+            params.threshold = m_RenderDevice.GetBloomThreshold();
+            params.softThreshold = 0.5f;  // Soft knee for smoother transition
+            params._padding1 = 0.0f;
+            params._padding2 = 0.0f;
+            
+            // Debug: Log threshold changes
+            static float lastThreshold = -1.0f;
+            if (std::abs(params.threshold - lastThreshold) > 0.01f) {
+                LOG_CORE_INFO("Bloom threshold changed: {}", params.threshold);
+                lastThreshold = params.threshold;
+            }
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &params, sizeof(params));
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            
+            SDL_EndGPURenderPass(pass);
+            m_Stats.drawCalls++;
+        }
+        
+        // ========== BLUR PASSES (Ping-Pong) ==========
+        float texelWidth = 1.0f / static_cast<float>(bloomWidth);
+        float texelHeight = 1.0f / static_cast<float>(bloomHeight);
+        
+        int blurPasses = m_RenderDevice.GetBloomBlurPasses();
+        SDL_GPUTexture* readTexture = brightTexture;
+        SDL_GPUTexture* writeTexture = blurTextureA;
+        
+        for (int i = 0; i < blurPasses * 2; i++) {  // *2 for horizontal + vertical
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = writeTexture;
+            colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            colorTarget.clear_color = {0, 0, 0, 1};
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_GPUViewport viewport = {};
+            viewport.w = static_cast<float>(bloomWidth);
+            viewport.h = static_cast<float>(bloomHeight);
+            viewport.max_depth = 1.0f;
+            SDL_SetGPUViewport(pass, &viewport);
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_BloomBlurPipeline);
+            
+            SDL_GPUTextureSamplerBinding texBinding = {};
+            texBinding.texture = readTexture;
+            texBinding.sampler = m_LinearSampler;
+            SDL_BindGPUFragmentSamplers(pass, 0, &texBinding, 1);
+            
+            struct BlurParams {
+                float dirX, dirY;
+                float texelSizeX, texelSizeY;
+            } params;
+            
+            // Alternate between horizontal (1,0) and vertical (0,1)
+            bool horizontal = (i % 2 == 0);
+            params.dirX = horizontal ? 1.0f : 0.0f;
+            params.dirY = horizontal ? 0.0f : 1.0f;
+            params.texelSizeX = texelWidth;
+            params.texelSizeY = texelHeight;
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &params, sizeof(params));
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            
+            SDL_EndGPURenderPass(pass);
+            m_Stats.drawCalls++;
+            
+            // Swap read/write textures (ping-pong)
+            if (i == 0) {
+                readTexture = blurTextureA;
+                writeTexture = blurTextureB;
+            } else {
+                std::swap(readTexture, writeTexture);
+            }
+        }
+        
+        // The final blurred bloom result is in 'writeTexture' (since we swapped after last write)
+        // Actually, after the last iteration we wrote to writeTexture, then swapped.
+        // So the result is in readTexture (which was the last writeTexture before swap).
+        m_BloomResultTexture = readTexture;
+        
+        // Debug: Log that bloom was processed
+        static bool loggedOnce = false;
+        if (!loggedOnce) {
+            LOG_CORE_INFO("Bloom pass completed. Result texture: {}", (void*)m_BloomResultTexture);
+            loggedOnce = true;
+        }
+    }
+
     void RenderSystem::RenderToneMappingPass() {
         if (!m_ToneMappingPipeline || !m_RenderDevice.IsHDREnabled()) {
             return;
@@ -1622,7 +2074,7 @@ namespace Systems {
             return;
         }
         
-        // End the current HDR render pass
+        // End the current HDR render pass (if not already ended by bloom pass)
         m_RenderDevice.EndRenderPass();
         
         // Begin a new render pass targeting the swapchain
@@ -1649,24 +2101,38 @@ namespace Systems {
         // Bind the tone mapping pipeline
         SDL_BindGPUGraphicsPipeline(pass, m_ToneMappingPipeline);
         
-        // Bind HDR texture as sampler
-        SDL_GPUTextureSamplerBinding texBinding = {};
-        texBinding.texture = hdrTexture;
-        texBinding.sampler = m_LinearSampler;
-        SDL_BindGPUFragmentSamplers(pass, 0, &texBinding, 1);
+        // Bind HDR texture and bloom texture as samplers
+        SDL_GPUTextureSamplerBinding texBindings[2] = {};
+        texBindings[0].texture = hdrTexture;
+        texBindings[0].sampler = m_LinearSampler;
+        
+        // Use bloom result if available, otherwise use HDR texture as placeholder (will be ignored with intensity 0)
+        texBindings[1].texture = m_BloomResultTexture ? m_BloomResultTexture : hdrTexture;
+        texBindings[1].sampler = m_LinearSampler;
+        
+        SDL_BindGPUFragmentSamplers(pass, 0, texBindings, 2);
         
         // Push tone mapping parameters
         struct ToneMappingParams {
             float exposure;
             float gamma;
             int32_t tonemapOperator;
-            float _padding;
+            float bloomIntensity;
         } params;
         
         params.exposure = m_RenderDevice.GetExposure();
         params.gamma = m_RenderDevice.GetGamma();
         params.tonemapOperator = static_cast<int32_t>(m_RenderDevice.GetToneMapOperator());
-        params._padding = 0.0f;
+        // Only apply bloom if we have a result texture
+        params.bloomIntensity = (m_BloomResultTexture && m_RenderDevice.IsBloomEnabled()) 
+                                 ? m_RenderDevice.GetBloomIntensity() : 0.0f;
+        
+        // Debug: Log bloom intensity changes
+        static float lastIntensity = -1.0f;
+        if (std::abs(params.bloomIntensity - lastIntensity) > 0.01f) {
+            LOG_CORE_INFO("Bloom intensity changed: {}", params.bloomIntensity);
+            lastIntensity = params.bloomIntensity;
+        }
         
         SDL_PushGPUFragmentUniformData(m_RenderDevice.GetCommandBuffer(), 0, &params, sizeof(params));
         
@@ -1674,14 +2140,27 @@ namespace Systems {
         SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
         
         m_Stats.drawCalls++;
+        
+        // Reset bloom result texture for next frame
+        m_BloomResultTexture = nullptr;
     }
 
     void RenderSystem::EndFrame() {
-        // If HDR is enabled, run tone mapping pass before ending frame
+        // If HDR is enabled with bloom, run bloom pass first
+        if (m_RenderDevice.IsHDREnabled() && m_RenderDevice.IsBloomEnabled()) {
+            RenderBloomPass();
+        }
+        
+        // Run tone mapping pass (includes bloom compositing if bloom was run)
+        // This leaves the render pass OPEN so UI can be drawn on top
         if (m_RenderDevice.IsHDREnabled() && m_ToneMappingPipeline) {
             RenderToneMappingPass();
         }
-        
+        // Note: Render pass is still open - call FinishFrame() after UI rendering
+    }
+
+    void RenderSystem::FinishFrame() {
+        // End render pass and submit command buffer
         m_RenderDevice.EndFrame();
     }
 

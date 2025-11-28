@@ -60,6 +60,21 @@ namespace Platform {
         ToneMapOperator GetToneMapOperator() const { return m_ToneMapOperator; }
         void SetToneMapOperator(ToneMapOperator op) { m_ToneMapOperator = op; }
         
+        // Bloom settings
+        bool IsBloomEnabled() const { return m_BloomEnabled; }
+        void SetBloomEnabled(bool enabled) { m_BloomEnabled = enabled; }
+        float GetBloomThreshold() const { return m_BloomThreshold; }
+        void SetBloomThreshold(float threshold) { m_BloomThreshold = threshold; }
+        float GetBloomIntensity() const { return m_BloomIntensity; }
+        void SetBloomIntensity(float intensity) { m_BloomIntensity = intensity; }
+        int GetBloomBlurPasses() const { return m_BloomBlurPasses; }
+        void SetBloomBlurPasses(int passes) { m_BloomBlurPasses = passes; }
+        
+        // Bloom textures (ping-pong buffers for blur)
+        SDL_GPUTexture* GetBloomBrightTexture() const { return m_BloomBrightTexture; }
+        SDL_GPUTexture* GetBloomBlurTextureA() const { return m_BloomBlurTextureA; }
+        SDL_GPUTexture* GetBloomBlurTextureB() const { return m_BloomBlurTextureB; }
+        
         // Frame validity - false if window is minimized or swapchain unavailable
         bool IsFrameValid() const { return m_FrameValid; }
         
@@ -73,11 +88,13 @@ namespace Platform {
         // Forward+ light culling
         void UpdateLightBuffer(const void* lightData, uint32_t numLights);
         void DispatchLightCulling(SDL_GPUComputePipeline* cullingPipeline, const glm::mat4& view, const glm::mat4& proj);
+        void EnsureForwardPlusBuffers();  // Create Forward+ buffers if they don't exist
 
     private:
         void CreateDepthTexture(uint32_t width, uint32_t height);
         void CreateHDRTexture(uint32_t width, uint32_t height);
         void CreateForwardPlusBuffers(uint32_t width, uint32_t height);
+        void CreateBloomTextures(uint32_t width, uint32_t height);
 
         SDL_GPUDevice* m_Device = nullptr;
         Window* m_Window = nullptr;
@@ -99,10 +116,22 @@ namespace Platform {
         float m_Gamma = 2.2f;
         ToneMapOperator m_ToneMapOperator = ToneMapOperator::ACES;
         
+        // Bloom settings and textures
+        bool m_BloomEnabled = true;
+        float m_BloomThreshold = 0.8f;   // Brightness threshold for bloom
+        float m_BloomIntensity = 0.3f;   // Subtle bloom strength
+        int m_BloomBlurPasses = 5;       // Number of blur iterations
+        SDL_GPUTexture* m_BloomBrightTexture = nullptr;  // Bright pixels extracted
+        SDL_GPUTexture* m_BloomBlurTextureA = nullptr;   // Ping-pong blur A
+        SDL_GPUTexture* m_BloomBlurTextureB = nullptr;   // Ping-pong blur B
+        uint32_t m_BloomWidth = 0;   // Bloom texture dimensions (can be half res)
+        uint32_t m_BloomHeight = 0;
+        
         // Forward+ settings and buffers
-        bool m_ForwardPlusEnabled = false;  // Disabled by default until fully implemented
+        bool m_ForwardPlusEnabled = true;  // Enable Forward+ rendering
         SDL_GPUBuffer* m_TileLightIndicesBuffer = nullptr;
         SDL_GPUBuffer* m_LightBuffer = nullptr;
+        SDL_GPUSampler* m_DepthSampler = nullptr;  // For sampling depth in compute
         uint32_t m_NumTilesX = 0;
         uint32_t m_NumTilesY = 0;
         uint32_t m_TileBufferSize = 0;

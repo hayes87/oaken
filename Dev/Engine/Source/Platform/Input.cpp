@@ -42,9 +42,13 @@ namespace Platform {
             m_Axes.move = glm::normalize(m_Axes.move);
         }
         
-        // Look from mouse delta
-        m_Axes.look.x = m_MouseDeltaX;
-        m_Axes.look.y = m_MouseDeltaY;
+        // Look from mouse delta - only when mouse is captured
+        if (m_RelativeMouseMode) {
+            m_Axes.look.x = m_MouseDeltaX;
+            m_Axes.look.y = m_MouseDeltaY;
+        } else {
+            m_Axes.look = {0.0f, 0.0f};
+        }
         
         // Zoom from scroll wheel
         m_Axes.zoom = m_ScrollDelta;
@@ -124,6 +128,7 @@ namespace Platform {
     void Input::SetRelativeMouseMode(bool enabled) {
         if (m_Window) {
             SDL_SetWindowRelativeMouseMode(m_Window, enabled);
+            m_RelativeMouseMode = enabled;
         }
     }
 

@@ -5,7 +5,11 @@
 #include "Components/Components.h"
 #include "Components/Reflection.h"
 #include "Scene/SceneSerializer.h"
+#include <nlohmann/json.hpp>
+#include <fstream>
 #include <iostream>
+
+using json = nlohmann::json;
 
 Engine::Engine() {
     Core::Log::Init();
@@ -85,6 +89,9 @@ bool Engine::Init() {
     
     // Map some test input
     m_Input->MapAction("Cast_Slot_1"_hs, SDL_SCANCODE_SPACE);
+    
+    // Load config file (overrides defaults)
+    LoadConfig();
     
     // Initialize time
     m_CurrentTime = SDL_GetTicks() / 1000.0;
@@ -189,12 +196,16 @@ bool Engine::Step() {
             m_EditorSystem->DrawUI(m_Context.World);
         }
         
-        // Render ImGui (inside the render pass, before it ends)
+        // Run bloom + tone mapping (renders to swapchain, leaves pass open for UI)
+        m_RenderSystem->EndFrame();
+        
+        // Render ImGui AFTER tone mapping so it doesn't get bloomed
         ImGui_ImplSDLGPU3_RenderDrawData(ImGui::GetDrawData(), 
                                           m_RenderDevice->GetCommandBuffer(),
                                           m_RenderDevice->GetRenderPass());
         
-        m_RenderSystem->EndFrame();
+        // End render pass and submit command buffer
+        m_RenderSystem->FinishFrame();
     }
 
     return true;
@@ -286,6 +297,9 @@ void Engine::HandleDebugInput() {
     if (m_Input->WasKeyPressed(SDL_SCANCODE_F11)) {
         m_ShowDebugMenu = !m_ShowDebugMenu;
         LOG_CORE_INFO("Debug menu: {}", m_ShowDebugMenu ? "ON" : "OFF");
+        
+        // Toggle mouse lock - unlock when debug menu opens, lock when it closes
+        m_Input->SetRelativeMouseMode(!m_ShowDebugMenu);
     }
     // F1 toggles colliders
     if (m_Input->WasKeyPressed(SDL_SCANCODE_F1)) {
@@ -366,6 +380,38 @@ void Engine::RenderDebugMenu() {
             if (ImGui::Combo("Tone Map", &currentTonemap, tonemapNames, 3)) {
                 m_RenderDevice->SetToneMapOperator(static_cast<Platform::ToneMapOperator>(currentTonemap));
             }
+            
+            ImGui::Separator();
+            ImGui::Text("Bloom");
+            
+            bool bloomEnabled = m_RenderDevice->IsBloomEnabled();
+            if (ImGui::Checkbox("Bloom Enabled", &bloomEnabled)) {
+                m_RenderDevice->SetBloomEnabled(bloomEnabled);
+            }
+            
+            float bloomThreshold = m_RenderDevice->GetBloomThreshold();
+            if (ImGui::SliderFloat("Bloom Threshold", &bloomThreshold, 0.0f, 2.0f, "%.2f")) {
+                m_RenderDevice->SetBloomThreshold(bloomThreshold);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Brightness threshold for bloom extraction. Lower = more bloom.");
+            }
+            
+            float bloomIntensity = m_RenderDevice->GetBloomIntensity();
+            if (ImGui::SliderFloat("Bloom Intensity", &bloomIntensity, 0.0f, 3.0f, "%.2f")) {
+                m_RenderDevice->SetBloomIntensity(bloomIntensity);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Strength of the bloom effect. >1.5 = debug mode (shows bloom texture only)");
+            }
+            
+            int bloomPasses = m_RenderDevice->GetBloomBlurPasses();
+            if (ImGui::SliderInt("Blur Passes", &bloomPasses, 1, 10)) {
+                m_RenderDevice->SetBloomBlurPasses(bloomPasses);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Number of blur iterations. More = softer bloom, but slower.");
+            }
         }
         
         // Engine info
@@ -388,6 +434,94 @@ void Engine::RenderDebugMenu() {
             ImGui::BulletText("Shift - Sprint");
             ImGui::BulletText("Space - Jump");
         }
+        
+        // Config save/load
+        ImGui::Separator();
+        if (ImGui::Button("Save Config")) {
+            SaveConfig();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Load Config")) {
+            LoadConfig();
+        }
     }
     ImGui::End();
+}
+
+void Engine::LoadConfig() {
+    std::ifstream file("engine.json");
+    if (!file.is_open()) {
+        LOG_CORE_WARN("No config file found (engine.json), using defaults");
+        return;
+    }
+    
+    try {
+        json config;
+        file >> config;
+        
+        // HDR settings
+        if (config.contains("hdr")) {
+            auto& hdr = config["hdr"];
+            if (hdr.contains("exposure")) m_RenderDevice->SetExposure(hdr["exposure"]);
+            if (hdr.contains("gamma")) m_RenderDevice->SetGamma(hdr["gamma"]);
+            if (hdr.contains("tonemapOperator")) {
+                m_RenderDevice->SetToneMapOperator(static_cast<Platform::ToneMapOperator>(hdr["tonemapOperator"].get<int>()));
+            }
+        }
+        
+        // Bloom settings
+        if (config.contains("bloom")) {
+            auto& bloom = config["bloom"];
+            if (bloom.contains("enabled")) m_RenderDevice->SetBloomEnabled(bloom["enabled"]);
+            if (bloom.contains("threshold")) m_RenderDevice->SetBloomThreshold(bloom["threshold"]);
+            if (bloom.contains("intensity")) m_RenderDevice->SetBloomIntensity(bloom["intensity"]);
+            if (bloom.contains("blurPasses")) m_RenderDevice->SetBloomBlurPasses(bloom["blurPasses"]);
+        }
+        
+        // Debug settings
+        if (config.contains("debug")) {
+            auto& debug = config["debug"];
+            if (debug.contains("showFPS")) m_ShowFPS = debug["showFPS"];
+            if (debug.contains("showColliders")) m_ShowColliders = debug["showColliders"];
+            if (debug.contains("showSkeleton")) m_ShowSkeleton = debug["showSkeleton"];
+        }
+        
+        LOG_CORE_INFO("Config loaded from engine.json");
+    } catch (const std::exception& e) {
+        LOG_CORE_ERROR("Failed to parse config: {}", e.what());
+    }
+}
+
+void Engine::SaveConfig() {
+    json config;
+    
+    // HDR settings
+    config["hdr"] = {
+        {"exposure", m_RenderDevice->GetExposure()},
+        {"gamma", m_RenderDevice->GetGamma()},
+        {"tonemapOperator", static_cast<int>(m_RenderDevice->GetToneMapOperator())}
+    };
+    
+    // Bloom settings
+    config["bloom"] = {
+        {"enabled", m_RenderDevice->IsBloomEnabled()},
+        {"threshold", m_RenderDevice->GetBloomThreshold()},
+        {"intensity", m_RenderDevice->GetBloomIntensity()},
+        {"blurPasses", m_RenderDevice->GetBloomBlurPasses()}
+    };
+    
+    // Debug settings
+    config["debug"] = {
+        {"showFPS", m_ShowFPS},
+        {"showColliders", m_ShowColliders},
+        {"showSkeleton", m_ShowSkeleton}
+    };
+    
+    std::ofstream file("engine.json");
+    if (file.is_open()) {
+        file << config.dump(4);  // Pretty print with 4-space indent
+        LOG_CORE_INFO("Config saved to engine.json");
+    } else {
+        LOG_CORE_ERROR("Failed to save config file");
+    }
 }

@@ -107,12 +107,12 @@
     - [x] Forward+ fragment shader (MeshInstancedForwardPlus.frag).
     - [x] Forward+ graphics pipeline with storage buffer bindings.
     - [x] RenderDevice Forward+ buffer infrastructure (tile indices, light buffer).
-- [ ] **Forward+ Renderer (Integration)**:
-    - [ ] Enable depth pre-pass in render loop.
-    - [ ] Update light buffer with scene point lights.
-    - [ ] Dispatch light culling compute before main pass.
-    - [ ] Switch to Forward+ pipeline for main rendering.
-    - [ ] Bind tile light buffers to fragment shader.
+- [x] **Forward+ Renderer (Integration)**:
+    - [x] Enable depth pre-pass in render loop.
+    - [x] Update light buffer with scene point lights.
+    - [x] Dispatch light culling compute before main pass.
+    - [x] Switch to Forward+ pipeline for main rendering.
+    - [x] Bind tile light buffers to fragment shader.
     - [ ] Tile debug visualization (optional).
 - [x] **HDR Pipeline**:
     - [x] HDR render targets (RGBA16F).
@@ -164,10 +164,10 @@
     - [ ] Cascaded Shadow Maps for large outdoor scenes.
 
 ### Post-Processing
-- [ ] **Bloom**:
-    - [ ] Brightness threshold extraction.
-    - [ ] Gaussian blur (separable, multi-pass).
-    - [ ] Additive blend with scene.
+- [x] **Bloom**:
+    - [x] Brightness threshold extraction.
+    - [x] Gaussian blur (separable, multi-pass ping-pong).
+    - [x] Additive blend with scene (integrated with tone mapping).
 - [ ] **Anti-Aliasing**:
     - [ ] Multisample Anti-aliasing (MSAA).
     - [ ] FXAA fallback (optional).

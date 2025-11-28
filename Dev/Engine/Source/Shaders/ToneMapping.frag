@@ -3,15 +3,16 @@
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out vec4 outColor;
 
-// SDL_GPU fragment sampler binding: set = 2, binding = 0
+// SDL_GPU fragment sampler bindings: set = 2
 layout(set = 2, binding = 0) uniform sampler2D hdrTexture;
+layout(set = 2, binding = 1) uniform sampler2D bloomTexture;  // Optional bloom
 
 // SDL_GPU fragment uniform binding: set = 3, binding = 0
 layout(std140, set = 3, binding = 0) uniform ToneMappingParams {
     float exposure;
     float gamma;
     int tonemapOperator; // 0 = Reinhard, 1 = ACES, 2 = Uncharted2
-    float _padding;
+    float bloomIntensity; // Bloom strength (0 = disabled)
 } params;
 
 // Reinhard tone mapping
@@ -49,6 +50,10 @@ vec3 tonemapUncharted2(vec3 color) {
 
 void main() {
     vec3 hdrColor = texture(hdrTexture, inUV).rgb;
+    
+    // Add bloom contribution
+    vec3 bloomColor = texture(bloomTexture, inUV).rgb;
+    hdrColor += bloomColor * params.bloomIntensity;
     
     // Apply exposure
     hdrColor *= params.exposure;

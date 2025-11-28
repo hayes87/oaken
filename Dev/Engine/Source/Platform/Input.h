@@ -36,6 +36,7 @@ namespace Platform {
 
         // Mouse Support
         void SetRelativeMouseMode(bool enabled);
+        bool IsRelativeMouseMode() const { return m_RelativeMouseMode; }
         void GetMouseDelta(float& x, float& y);
         float GetScrollDelta() const { return m_ScrollDelta; }
 
@@ -60,6 +61,7 @@ namespace Platform {
         float m_MouseDeltaX = 0.0f;
         float m_MouseDeltaY = 0.0f;
         float m_ScrollDelta = 0.0f;
+        bool m_RelativeMouseMode = false;
 
         InputAxes m_Axes;
     };

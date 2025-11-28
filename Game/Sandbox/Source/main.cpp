@@ -11,6 +11,8 @@
 #include "Resources/ResourceManager.h"
 #include <memory>
 #include <filesystem>
+#include <cmath>
+#include <string>
 
 // Global state to keep alive between reloads if needed, 
 // but for now we just re-init.
@@ -404,17 +406,45 @@ GAME_EXPORT void GameInit(Engine& engine) {
                 {0.15f, 0.15f, 0.2f}    // ambient (slight blue tint)
             });
         LOG_INFO("Created Sun directional light");
+    }
+    
+    // Add multiple point lights to test Forward+ rendering
+    if (engine.GetContext().World->count<PointLight>() == 0) {
+        // Create a grid of colored point lights
+        const int numLightsPerRow = 4;
+        const float spacing = 8.0f;
+        const float startOffset = -((numLightsPerRow - 1) * spacing) / 2.0f;
         
-        // // Add a point light for extra illumination
-        // engine.GetContext().World->entity("PointLight1")
-        //     .set<LocalTransform>({ {2.0f, 2.0f, 2.0f}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
-        //     .set<PointLight>({
-        //         {1.0f, 0.95f, 0.9f},   // warm white color
-        //         2.0f,                   // intensity
-        //         8.0f,                   // radius
-        //         2.0f                    // falloff
-        //     });
-        // LOG_INFO("Created PointLight1");
+        int lightIndex = 0;
+        for (int x = 0; x < numLightsPerRow; x++) {
+            for (int z = 0; z < numLightsPerRow; z++) {
+                float posX = startOffset + x * spacing;
+                float posZ = startOffset + z * spacing;
+                float posY = 3.0f + std::sinf(static_cast<float>(x) * 0.5f + static_cast<float>(z) * 0.7f) * 1.5f;  // Vary height
+                
+                // Cycle through colors
+                glm::vec3 color;
+                switch ((x + z) % 6) {
+                    case 0: color = {1.0f, 0.3f, 0.3f}; break;  // Red
+                    case 1: color = {0.3f, 1.0f, 0.3f}; break;  // Green
+                    case 2: color = {0.3f, 0.3f, 1.0f}; break;  // Blue
+                    case 3: color = {1.0f, 1.0f, 0.3f}; break;  // Yellow
+                    case 4: color = {1.0f, 0.3f, 1.0f}; break;  // Magenta
+                    case 5: color = {0.3f, 1.0f, 1.0f}; break;  // Cyan
+                }
+                
+                std::string name = "PointLight_" + std::to_string(lightIndex++);
+                engine.GetContext().World->entity(name.c_str())
+                    .set<LocalTransform>({ {posX, posY, posZ}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f} })
+                    .set<PointLight>({
+                        color,
+                        2.0f,       // intensity
+                        12.0f,      // radius
+                        2.0f        // falloff
+                    });
+            }
+        }
+        LOG_INFO("Created {} point lights for Forward+ testing", lightIndex);
     }
 
     // Create a test entity with AttributeSet if it doesn't exist

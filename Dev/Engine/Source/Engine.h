@@ -96,4 +96,12 @@ private:
     void RenderDebugMenu();
     void HandleDebugInput();
     void UpdateFPSCounter(float deltaTime);
+    
+    // Config file management
+    void LoadConfig();
+    void SaveConfig();
+    
+public:
+    // Debug menu state - CameraSystem needs this to disable mouse look
+    bool IsDebugMenuOpen() const { return m_ShowDebugMenu; }
 };
