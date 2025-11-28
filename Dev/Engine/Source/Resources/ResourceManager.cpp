@@ -281,14 +281,20 @@ namespace Resources {
     std::shared_ptr<Shader> ResourceManager::LoadShader(const std::string& path, SDL_GPUShaderStage stage,
         uint32_t samplers, uint32_t storageTextures, uint32_t storageBuffers, uint32_t uniformBuffers) {
         
+        // Create a unique cache key that includes resource counts
+        std::string cacheKey = path + "_s" + std::to_string(samplers) 
+                                    + "_st" + std::to_string(storageTextures)
+                                    + "_sb" + std::to_string(storageBuffers) 
+                                    + "_ub" + std::to_string(uniformBuffers);
+        
         // Debug Log
         std::cout << "[ResourceManager] LoadShader: " << path 
                   << " | SB: " << storageBuffers 
                   << " | UB: " << uniformBuffers << std::endl;
 
-        // Check Cache
-        if (m_Resources.find(path) != m_Resources.end()) {
-            return std::dynamic_pointer_cast<Shader>(m_Resources[path]);
+        // Check Cache with full key
+        if (m_Resources.find(cacheKey) != m_Resources.end()) {
+            return std::dynamic_pointer_cast<Shader>(m_Resources[cacheKey]);
         }
 
         auto shader = std::make_shared<Shader>(m_RenderDevice->GetDevice(), nullptr, stage, samplers, storageTextures, storageBuffers, uniformBuffers);
@@ -296,7 +302,7 @@ namespace Resources {
 
         if (shader->Reload()) {
             shader->m_LastWriteTime = std::filesystem::last_write_time(path);
-            m_Resources[path] = shader;
+            m_Resources[cacheKey] = shader;
             return shader;
         }
 

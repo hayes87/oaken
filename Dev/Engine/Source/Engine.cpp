@@ -412,6 +412,38 @@ void Engine::RenderDebugMenu() {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Number of blur iterations. More = softer bloom, but slower.");
             }
+            
+            ImGui::Separator();
+            ImGui::Text("Shadows");
+            
+            bool shadowsEnabled = m_RenderDevice->IsShadowsEnabled();
+            if (ImGui::Checkbox("Shadows Enabled", &shadowsEnabled)) {
+                m_RenderDevice->SetShadowsEnabled(shadowsEnabled);
+            }
+            
+            float shadowBias = m_RenderDevice->GetShadowBias();
+            if (ImGui::SliderFloat("Shadow Bias", &shadowBias, 0.0f, 0.05f, "%.4f")) {
+                m_RenderDevice->SetShadowBias(shadowBias);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Depth bias to prevent shadow acne. Too high = peter panning.");
+            }
+            
+            float shadowNormalBias = m_RenderDevice->GetShadowNormalBias();
+            if (ImGui::SliderFloat("Normal Bias", &shadowNormalBias, 0.0f, 0.1f, "%.3f")) {
+                m_RenderDevice->SetShadowNormalBias(shadowNormalBias);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Normal-based bias for grazing angles.");
+            }
+            
+            int pcfSamples = m_RenderDevice->GetShadowPcfSamples();
+            if (ImGui::SliderInt("PCF Samples", &pcfSamples, 0, 4)) {
+                m_RenderDevice->SetShadowPcfSamples(pcfSamples);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("0=hard shadows, 1=3x3 PCF, 2=5x5 PCF, etc.");
+            }
         }
         
         // Engine info

@@ -28,6 +28,9 @@ namespace Platform {
             return false;
         }
 
+        // Always create shadow map (needed for shader binding even if shadows disabled)
+        CreateShadowMapTexture(m_ShadowMapSize);
+
         return true;
     }
 
@@ -37,6 +40,14 @@ namespace Platform {
 
     void RenderDevice::Shutdown() {
         if (m_Device) {
+            if (m_ShadowSampler) {
+                SDL_ReleaseGPUSampler(m_Device, m_ShadowSampler);
+                m_ShadowSampler = nullptr;
+            }
+            if (m_ShadowMapTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_ShadowMapTexture);
+                m_ShadowMapTexture = nullptr;
+            }
             if (m_DepthSampler) {
                 SDL_ReleaseGPUSampler(m_Device, m_DepthSampler);
                 m_DepthSampler = nullptr;
@@ -500,6 +511,101 @@ namespace Platform {
         SDL_DispatchGPUCompute(computePass, m_NumTilesX, m_NumTilesY, 1);
         
         SDL_EndGPUComputePass(computePass);
+    }
+
+    void RenderDevice::CreateShadowMapTexture(uint32_t size) {
+        if (m_ShadowMapTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_ShadowMapTexture);
+            m_ShadowMapTexture = nullptr;
+        }
+        if (m_ShadowSampler) {
+            SDL_ReleaseGPUSampler(m_Device, m_ShadowSampler);
+            m_ShadowSampler = nullptr;
+        }
+        
+        // Create depth texture for shadow map
+        SDL_GPUTextureCreateInfo createInfo = {};
+        createInfo.type = SDL_GPU_TEXTURETYPE_2D;
+        createInfo.format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;  // Higher precision for shadows
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        createInfo.width = size;
+        createInfo.height = size;
+        createInfo.layer_count_or_depth = 1;
+        createInfo.num_levels = 1;
+        createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        
+        m_ShadowMapTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        if (!m_ShadowMapTexture) {
+            std::cerr << "Failed to create shadow map texture: " << SDL_GetError() << std::endl;
+            return;
+        }
+        
+        // Create comparison sampler for PCF shadow filtering
+        SDL_GPUSamplerCreateInfo samplerInfo = {};
+        samplerInfo.min_filter = SDL_GPU_FILTER_LINEAR;
+        samplerInfo.mag_filter = SDL_GPU_FILTER_LINEAR;
+        samplerInfo.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+        samplerInfo.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        samplerInfo.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        samplerInfo.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        samplerInfo.enable_compare = true;
+        
+        m_ShadowSampler = SDL_CreateGPUSampler(m_Device, &samplerInfo);
+        if (!m_ShadowSampler) {
+            std::cerr << "Failed to create shadow sampler: " << SDL_GetError() << std::endl;
+        }
+        
+        m_ShadowMapSize = size;
+        std::cout << "Shadow map created: " << size << "x" << size << " (D32F)" << std::endl;
+    }
+    
+    void RenderDevice::SetShadowMapSize(uint32_t size) {
+        if (size != m_ShadowMapSize && size > 0) {
+            m_ShadowMapSize = size;
+            if (m_ShadowsEnabled && m_Device) {
+                CreateShadowMapTexture(size);
+            }
+        }
+    }
+    
+    bool RenderDevice::BeginShadowPass() {
+        if (!m_FrameValid || !m_CommandBuffer) {
+            return false;
+        }
+        
+        // Create shadow map if it doesn't exist
+        if (!m_ShadowMapTexture && m_ShadowsEnabled) {
+            CreateShadowMapTexture(m_ShadowMapSize);
+        }
+        
+        if (!m_ShadowMapTexture) {
+            return false;
+        }
+        
+        // Depth-only render pass targeting shadow map
+        SDL_GPUDepthStencilTargetInfo depthTarget = {};
+        depthTarget.texture = m_ShadowMapTexture;
+        depthTarget.clear_depth = 1.0f;
+        depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+        depthTarget.store_op = SDL_GPU_STOREOP_STORE;
+        depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        
+        m_RenderPass = SDL_BeginGPURenderPass(m_CommandBuffer, nullptr, 0, &depthTarget);
+        if (!m_RenderPass) {
+            std::cerr << "BeginShadowPass: SDL_BeginGPURenderPass failed: " << SDL_GetError() << std::endl;
+            return false;
+        }
+        
+        return true;
+    }
+    
+    void RenderDevice::EndShadowPass() {
+        if (m_RenderPass) {
+            SDL_EndGPURenderPass(m_RenderPass);
+            m_RenderPass = nullptr;
+        }
     }
 
 }

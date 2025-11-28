@@ -69,6 +69,9 @@ namespace Systems {
         
         // Render statistics
         const RenderStats& GetStats() const { return m_Stats; }
+        
+        // Shadow mapping - expose light-space matrix for debug/external use
+        const glm::mat4& GetLightSpaceMatrix() const { return m_LightSpaceMatrix; }
 
     private:
         Core::GameContext& m_Context;
@@ -102,9 +105,11 @@ namespace Systems {
         void CreateToneMappingPipeline();
         void CreateDepthOnlyPipeline();
         void CreateLightCullingPipeline();
+        void CreateShadowMapPipeline();
         
         void RenderToneMappingPass();  // Tone map HDR -> Swapchain
         void RenderDepthPrePass(const glm::mat4& view, const glm::mat4& proj);  // Depth pre-pass for Forward+
+        void RenderShadowPass(const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData);  // Render shadow map from light's perspective
         void DispatchLightCulling(const glm::mat4& view, const glm::mat4& proj);  // Light culling compute
         void UpdateLightBufferForForwardPlus();  // Update GPU light buffer for Forward+ culling
         
@@ -118,6 +123,13 @@ namespace Systems {
         SDL_GPUGraphicsPipeline* m_ForwardPlusPipeline = nullptr;  // Forward+ instanced mesh pipeline
         SDL_GPUComputePipeline* m_LightCullingPipeline = nullptr;
         SDL_GPUSampler* m_DepthSampler = nullptr;  // For sampling depth in compute
+        
+        // Shadow mapping
+        SDL_GPUGraphicsPipeline* m_ShadowMapPipeline = nullptr;
+        SDL_GPUGraphicsPipeline* m_ShadowMapSkinnedPipeline = nullptr;  // For skinned meshes
+        glm::mat4 m_LightSpaceMatrix = glm::mat4(1.0f);  // Cached for fragment shader
+        void CreateShadowMapSkinnedPipeline();
+        void RenderSkinnedMeshesToShadowMap(SDL_GPURenderPass* pass, const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData);
         
         // Bloom pipelines
         SDL_GPUGraphicsPipeline* m_BloomBrightPassPipeline = nullptr;

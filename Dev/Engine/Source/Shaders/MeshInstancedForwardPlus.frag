@@ -22,8 +22,12 @@ struct PointLight {
     vec4 colorIntensity;  // rgb = color, w = intensity
 };
 
-// Light buffer (read-only storage buffer at set 2, binding 0)
-layout(std430, set = 2, binding = 0) readonly buffer LightBuffer {
+// SDL_GPU binding order: Samplers first, then storage buffers
+// Shadow map sampler (comparison sampler for PCF)
+layout(set = 2, binding = 0) uniform sampler2DShadow shadowMap;
+
+// Light buffer (read-only storage buffer at set 2, binding 1)
+layout(std430, set = 2, binding = 1) readonly buffer LightBuffer {
     int numLights;
     int _pad0;
     int _pad1;
@@ -31,12 +35,12 @@ layout(std430, set = 2, binding = 0) readonly buffer LightBuffer {
     PointLight lights[];
 } lightBuffer;
 
-// Tile light indices (read-only storage buffer at set 2, binding 1)
-layout(std430, set = 2, binding = 1) readonly buffer TileLightIndices {
+// Tile light indices (read-only storage buffer at set 2, binding 2)
+layout(std430, set = 2, binding = 2) readonly buffer TileLightIndices {
     uint data[];
 } tileLightIndices;
 
-// Light uniforms - for directional light, ambient, camera, and screen info
+// Light uniforms - for directional light, ambient, camera, screen info, and shadows
 layout(std140, set = 3, binding = 0) uniform LightUniforms {
     // Directional light
     vec4 dirLightDir;       // xyz = direction, w = intensity
@@ -49,6 +53,13 @@ layout(std140, set = 3, binding = 0) uniform LightUniforms {
     // Screen info for Forward+
     vec4 screenSize;        // xy = size, zw = 1/size
     
+    // Shadow settings
+    mat4 lightSpaceMatrix;  // Light's view-projection matrix
+    float shadowBias;       // Depth bias
+    float shadowNormalBias; // Normal-based bias
+    int pcfSamples;         // PCF kernel size (0=hard, 1=3x3, 2=5x5)
+    int shadowsEnabled;     // Shadow toggle
+    
     float shininess;
     float _pad1;
     float _pad2;
@@ -59,7 +70,59 @@ layout(std140, set = 3, binding = 0) uniform LightUniforms {
 const vec3 materialDiffuse = vec3(0.8);
 const vec3 materialSpecular = vec3(0.5);
 
-vec3 calculateDirectionalLight(vec3 normal, vec3 viewDir) {
+// Calculate shadow factor using PCF (Percentage Closer Filtering)
+float calculateShadow(vec3 fragPosWorld, vec3 normal) {
+    if (uniforms.shadowsEnabled == 0) return 1.0;
+    
+    // Transform to light space
+    vec4 fragPosLightSpace = uniforms.lightSpaceMatrix * vec4(fragPosWorld, 1.0);
+    
+    // Perspective divide (for ortho this is basically a no-op)
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    
+    // Transform from NDC [-1,1] to texture coords [0,1]
+    projCoords.xy = projCoords.xy * 0.5 + 0.5;
+    projCoords.z = projCoords.z * 0.5 + 0.5;  // Also remap Z from [-1,1] to [0,1]
+    // Flip Y for Vulkan texture coordinates
+    projCoords.y = 1.0 - projCoords.y;
+    
+    // Check if outside shadow map
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0 ||
+        projCoords.z < 0.0 || projCoords.z > 1.0) {
+        return 1.0; // Outside shadow frustum = fully lit
+    }
+    
+    // Simple constant bias
+    float bias = uniforms.shadowBias;
+    float currentDepth = projCoords.z - bias;
+    
+    // PCF shadow sampling
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+    
+    int samples = uniforms.pcfSamples;
+    if (samples == 0) {
+        // Hard shadows
+        shadow = texture(shadowMap, vec3(projCoords.xy, currentDepth));
+    } else {
+        // Soft shadows with PCF
+        int kernelSize = samples * 2 + 1;
+        float numSamples = float(kernelSize * kernelSize);
+        
+        for (int x = -samples; x <= samples; ++x) {
+            for (int y = -samples; y <= samples; ++y) {
+                vec2 offset = vec2(x, y) * texelSize;
+                shadow += texture(shadowMap, vec3(projCoords.xy + offset, currentDepth));
+            }
+        }
+        shadow /= numSamples;
+    }
+    
+    return shadow;
+}
+
+vec3 calculateDirectionalLight(vec3 normal, vec3 viewDir, float shadow) {
     vec3 lightDir = normalize(-uniforms.dirLightDir.xyz);
     float intensity = uniforms.dirLightDir.w;
     
@@ -72,7 +135,8 @@ vec3 calculateDirectionalLight(vec3 normal, vec3 viewDir) {
     float spec = pow(max(dot(normal, halfwayDir), 0.0), uniforms.shininess);
     vec3 specular = spec * uniforms.dirLightColor.rgb * materialSpecular * intensity;
     
-    return diffuse + specular;
+    // Apply shadow to diffuse and specular (ambient is not affected)
+    return (diffuse + specular) * shadow;
 }
 
 vec3 calculatePointLight(PointLight light, vec3 normal, vec3 fragPos, vec3 viewDir) {
@@ -105,11 +169,14 @@ void main() {
     vec3 normal = normalize(inWorldNormal);
     vec3 viewDir = normalize(uniforms.cameraPos.xyz - inWorldPos);
     
-    // Ambient
+    // Ambient (not affected by shadows)
     vec3 ambient = uniforms.ambientColor.rgb * materialDiffuse;
     
-    // Directional light
-    vec3 lighting = calculateDirectionalLight(normal, viewDir);
+    // Calculate shadow for directional light
+    float shadow = calculateShadow(inWorldPos, normal);
+    
+    // Directional light with shadow
+    vec3 lighting = calculateDirectionalLight(normal, viewDir, shadow);
     
     // Forward+ path: read lights from tile buffer
     ivec2 screenPos = ivec2(gl_FragCoord.xy);

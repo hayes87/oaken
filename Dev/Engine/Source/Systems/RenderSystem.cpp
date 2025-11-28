@@ -69,6 +69,8 @@ namespace Systems {
         CreateDepthOnlyPipeline();
         CreateLightCullingPipeline();
         CreateForwardPlusPipeline();
+        CreateShadowMapPipeline();
+        CreateShadowMapSkinnedPipeline();
         
         // Nearest neighbor sampler (for sprites/pixel art)
         SDL_GPUSamplerCreateInfo samplerInfo = {};
@@ -852,6 +854,256 @@ namespace Systems {
         }
     }
 
+    void RenderSystem::CreateShadowMapPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        std::string vertPath, fragPath;
+        
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/ShadowMap.vert.dxil";
+            fragPath = "Assets/Shaders/ShadowMap.frag.dxil";
+        } else {
+            vertPath = "Assets/Shaders/ShadowMap.vert.spv";
+            fragPath = "Assets/Shaders/ShadowMap.frag.spv";
+        }
+        
+        // Vertex shader: 1 uniform buffer (LightSpaceMatrix at set 1, binding 0)
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
+        // Fragment shader: no resources (depth-only output)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
+        
+        if (!vertShader || !fragShader) {
+            LOG_CORE_WARN("Failed to load shadow map shaders - shadows will be unavailable");
+            return;
+        }
+        
+        // Same vertex layout as instanced mesh (we reuse instance buffer)
+        SDL_GPUVertexBufferDescription vertexBufferDescs[2] = {};
+        
+        // Buffer 0: Mesh vertex data
+        vertexBufferDescs[0].slot = 0;
+        vertexBufferDescs[0].pitch = sizeof(Resources::Vertex);
+        vertexBufferDescs[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDescs[0].instance_step_rate = 0;
+        
+        // Buffer 1: Instance data
+        vertexBufferDescs[1].slot = 1;
+        vertexBufferDescs[1].pitch = sizeof(MeshInstance);
+        vertexBufferDescs[1].input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
+        vertexBufferDescs[1].instance_step_rate = 0;
+        
+        SDL_GPUVertexAttribute vertexAttributes[10] = {};
+        
+        // Per-vertex: position (location 0)
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].buffer_slot = 0;
+        vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[0].offset = offsetof(Resources::Vertex, position);
+        
+        // Normal (location 1) - unused but layout must match
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].buffer_slot = 0;
+        vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[1].offset = offsetof(Resources::Vertex, normal);
+
+        // UV (location 2)
+        vertexAttributes[2].location = 2;
+        vertexAttributes[2].buffer_slot = 0;
+        vertexAttributes[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        vertexAttributes[2].offset = offsetof(Resources::Vertex, uv);
+
+        // Weights (location 3)
+        vertexAttributes[3].location = 3;
+        vertexAttributes[3].buffer_slot = 0;
+        vertexAttributes[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[3].offset = offsetof(Resources::Vertex, weights);
+
+        // Joints (location 4)
+        vertexAttributes[4].location = 4;
+        vertexAttributes[4].buffer_slot = 0;
+        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[4].offset = offsetof(Resources::Vertex, joints);
+
+        // Per-instance: Model matrix (locations 5-8)
+        vertexAttributes[5].location = 5;
+        vertexAttributes[5].buffer_slot = 1;
+        vertexAttributes[5].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[5].offset = 0;
+
+        vertexAttributes[6].location = 6;
+        vertexAttributes[6].buffer_slot = 1;
+        vertexAttributes[6].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[6].offset = 16;
+
+        vertexAttributes[7].location = 7;
+        vertexAttributes[7].buffer_slot = 1;
+        vertexAttributes[7].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[7].offset = 32;
+
+        vertexAttributes[8].location = 8;
+        vertexAttributes[8].buffer_slot = 1;
+        vertexAttributes[8].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[8].offset = 48;
+
+        // Instance color (location 9)
+        vertexAttributes[9].location = 9;
+        vertexAttributes[9].buffer_slot = 1;
+        vertexAttributes[9].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[9].offset = 64;
+        
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 2;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDescs;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 10;
+        pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
+        
+        pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        
+        // Front-face culling for shadow map (reduces peter-panning)
+        pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
+        pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+        
+        // Depth bias to reduce shadow acne
+        pipelineInfo.rasterizer_state.enable_depth_bias = true;
+        pipelineInfo.rasterizer_state.depth_bias_constant_factor = 1.25f;
+        pipelineInfo.rasterizer_state.depth_bias_slope_factor = 1.75f;
+        
+        // No color targets (depth-only)
+        pipelineInfo.target_info.num_color_targets = 0;
+        pipelineInfo.target_info.color_target_descriptions = nullptr;
+        
+        // Depth target - D32F for shadow map precision
+        pipelineInfo.target_info.has_depth_stencil_target = true;
+        pipelineInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+        
+        pipelineInfo.depth_stencil_state.enable_depth_test = true;
+        pipelineInfo.depth_stencil_state.enable_depth_write = true;
+        pipelineInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        
+        m_ShadowMapPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_ShadowMapPipeline) {
+            LOG_CORE_WARN("Failed to create shadow map pipeline: {} - shadows will be unavailable", SDL_GetError());
+        } else {
+            LOG_CORE_INFO("Shadow Map Pipeline Created Successfully!");
+        }
+    }
+
+    void RenderSystem::CreateShadowMapSkinnedPipeline() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        
+        LOG_CORE_INFO("Creating Skinned Shadow Map Pipeline...");
+        
+        std::string vertPath, fragPath;
+        
+        if (std::string(driver) == "direct3d12") {
+            vertPath = "Assets/Shaders/ShadowMapSkinned.vert.dxil";
+            fragPath = "Assets/Shaders/ShadowMap.frag.dxil";  // Reuse depth-only fragment shader
+        } else {
+            vertPath = "Assets/Shaders/ShadowMapSkinned.vert.spv";
+            fragPath = "Assets/Shaders/ShadowMap.frag.spv";
+        }
+        
+        LOG_CORE_INFO("Loading skinned shadow shaders: {} and {}", vertPath, fragPath);
+        
+        // Vertex shader: 3 uniform buffers (LightSpace, Model, Skin matrices)
+        auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 3);
+        // Fragment shader: no resources (depth-only output)
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 0, 0);
+        
+        if (!vertShader || !fragShader) {
+            LOG_CORE_WARN("Failed to load skinned shadow map shaders - vertShader:{} fragShader:{}", 
+                          vertShader ? "OK" : "NULL", fragShader ? "OK" : "NULL");
+            return;
+        }
+        
+        // Vertex layout for non-instanced skinned mesh
+        SDL_GPUVertexBufferDescription vertexBufferDescs[1] = {};
+        
+        // Buffer 0: Mesh vertex data only (no instance buffer for skinned)
+        vertexBufferDescs[0].slot = 0;
+        vertexBufferDescs[0].pitch = sizeof(Resources::Vertex);
+        vertexBufferDescs[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+        vertexBufferDescs[0].instance_step_rate = 0;
+        
+        SDL_GPUVertexAttribute vertexAttributes[5] = {};
+        
+        // Per-vertex: position (location 0)
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].buffer_slot = 0;
+        vertexAttributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[0].offset = offsetof(Resources::Vertex, position);
+        
+        // Normal (location 1)
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].buffer_slot = 0;
+        vertexAttributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        vertexAttributes[1].offset = offsetof(Resources::Vertex, normal);
+
+        // UV (location 2)
+        vertexAttributes[2].location = 2;
+        vertexAttributes[2].buffer_slot = 0;
+        vertexAttributes[2].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        vertexAttributes[2].offset = offsetof(Resources::Vertex, uv);
+
+        // Weights (location 3)
+        vertexAttributes[3].location = 3;
+        vertexAttributes[3].buffer_slot = 0;
+        vertexAttributes[3].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[3].offset = offsetof(Resources::Vertex, weights);
+
+        // Joints (location 4)
+        vertexAttributes[4].location = 4;
+        vertexAttributes[4].buffer_slot = 0;
+        vertexAttributes[4].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        vertexAttributes[4].offset = offsetof(Resources::Vertex, joints);
+        
+        SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.vertex_shader = vertShader->GetShader();
+        pipelineInfo.fragment_shader = fragShader->GetShader();
+        
+        pipelineInfo.vertex_input_state.num_vertex_buffers = 1;
+        pipelineInfo.vertex_input_state.vertex_buffer_descriptions = vertexBufferDescs;
+        pipelineInfo.vertex_input_state.num_vertex_attributes = 5;
+        pipelineInfo.vertex_input_state.vertex_attributes = vertexAttributes;
+        
+        pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        
+        // Front-face culling for shadow map
+        pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
+        pipelineInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+        
+        // Depth bias
+        pipelineInfo.rasterizer_state.enable_depth_bias = true;
+        pipelineInfo.rasterizer_state.depth_bias_constant_factor = 1.25f;
+        pipelineInfo.rasterizer_state.depth_bias_slope_factor = 1.75f;
+        
+        // No color targets (depth-only)
+        pipelineInfo.target_info.num_color_targets = 0;
+        pipelineInfo.target_info.color_target_descriptions = nullptr;
+        
+        // Depth target
+        pipelineInfo.target_info.has_depth_stencil_target = true;
+        pipelineInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+        
+        pipelineInfo.depth_stencil_state.enable_depth_test = true;
+        pipelineInfo.depth_stencil_state.enable_depth_write = true;
+        pipelineInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        
+        m_ShadowMapSkinnedPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+        if (!m_ShadowMapSkinnedPipeline) {
+            LOG_CORE_WARN("Failed to create skinned shadow map pipeline: {} - skinned mesh shadows unavailable", SDL_GetError());
+        } else {
+            LOG_CORE_INFO("Skinned Shadow Map Pipeline Created Successfully!");
+        }
+    }
+
     void RenderSystem::CreateForwardPlusPipeline() {
         SDL_GPUDevice* device = m_RenderDevice.GetDevice();
         const char* driver = SDL_GetGPUDeviceDriver(device);
@@ -868,8 +1120,8 @@ namespace Systems {
 
         // Vertex Shader: 0 Samplers, 0 Storage Textures, 0 Storage Buffers, 1 Uniform Buffer (ViewProj)
         auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 1);
-        // Fragment Shader: 0 Samplers, 0 Storage Textures, 2 Storage Buffers (lights + tile indices), 1 Uniform Buffer
-        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 0, 2, 1);
+        // Fragment Shader: 1 Sampler (shadow map), 0 Storage Textures, 2 Storage Buffers (lights + tile indices), 1 Uniform Buffer
+        auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0, 2, 1);
 
         if (!vertShader || !fragShader) {
             LOG_CORE_WARN("Failed to load Forward+ shaders - Forward+ rendering will be unavailable");
@@ -1019,6 +1271,165 @@ namespace Systems {
         }
         
         m_RenderDevice.EndRenderPass();
+    }
+
+    void RenderSystem::RenderShadowPass(const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData) {
+        if (!m_ShadowMapPipeline || !m_RenderDevice.IsShadowsEnabled()) return;
+        if (!m_RenderDevice.IsFrameValid()) return;
+        
+        // Calculate light space matrix from directional light
+        glm::vec3 lightDir = glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f));  // Default
+        
+        // Query for directional light to get actual direction
+        m_Context.World->query<const DirectionalLight>()
+            .each([&](flecs::entity e, const DirectionalLight& light) {
+                lightDir = glm::normalize(light.direction);
+            });
+        
+        // Get camera position and direction for shadow frustum placement
+        glm::vec3 cameraPos = glm::vec3(0.0f);
+        glm::vec3 cameraLookAt = glm::vec3(0.0f);
+        bool foundCamera = false;
+        
+        // Try to get camera with follow component (has currentLookAt which is better)
+        m_Context.World->query<LocalTransform, const CameraComponent, const CameraFollowComponent>()
+            .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam, const CameraFollowComponent& follow) {
+                if (cam.isPrimary) {
+                    cameraPos = t.position;
+                    cameraLookAt = follow.currentLookAt;
+                    foundCamera = true;
+                }
+            });
+        
+        // Fallback: use just camera transform
+        if (!foundCamera) {
+            m_Context.World->query<LocalTransform, const CameraComponent>()
+                .each([&](flecs::entity e, LocalTransform& t, const CameraComponent& cam) {
+                    if (cam.isPrimary) {
+                        cameraPos = t.position;
+                        // Default look direction
+                        float yaw = glm::radians(t.rotation.y);
+                        cameraLookAt = cameraPos + glm::vec3(sin(yaw), 0.0f, -cos(yaw)) * 10.0f;
+                        foundCamera = true;
+                    }
+                });
+        }
+        
+        // Shadow frustum parameters - cover the whole play area
+        float shadowDistance = 100.0f;
+        float shadowNear = 1.0f;        
+        float shadowFar = 200.0f;       
+        float orthoSize = 80.0f;        // Large area
+        
+        // Center shadow frustum at where camera is looking (on ground level)
+        glm::vec3 shadowCenter = glm::vec3(cameraLookAt.x, 0.0f, cameraLookAt.z);
+        
+        // Light position: go OPPOSITE to light direction (light shines from lightPos toward shadowCenter)
+        glm::vec3 lightPos = shadowCenter - lightDir * shadowDistance;
+        glm::mat4 lightView = glm::lookAt(lightPos, shadowCenter, glm::vec3(0.0f, 1.0f, 0.0f));
+        
+        // Orthographic projection
+        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, shadowNear, shadowFar);
+        // No flip here - handled in shader
+        
+        // Store for use in main pass
+        m_LightSpaceMatrix = lightProj * lightView;
+        
+        // Begin shadow render pass
+        if (!m_RenderDevice.BeginShadowPass()) return;
+        
+        SDL_GPURenderPass* pass = m_RenderDevice.GetRenderPass();
+        SDL_BindGPUGraphicsPipeline(pass, m_ShadowMapPipeline);
+        
+        // Set viewport to shadow map size
+        uint32_t shadowSize = m_RenderDevice.GetShadowMapSize();
+        SDL_GPUViewport viewport = {};
+        viewport.x = 0;
+        viewport.y = 0;
+        viewport.w = static_cast<float>(shadowSize);
+        viewport.h = static_cast<float>(shadowSize);
+        viewport.min_depth = 0.0f;
+        viewport.max_depth = 1.0f;
+        SDL_SetGPUViewport(pass, &viewport);
+        
+        // Push light space matrix uniform
+        SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &m_LightSpaceMatrix, sizeof(m_LightSpaceMatrix));
+        
+        // Render all batches to shadow map
+        for (auto& [meshPtr, batch] : m_Batches) {
+            if (batch.instances.empty()) continue;
+            
+            auto mesh = batch.mesh;
+            if (!mesh) continue;
+            
+            SDL_GPUBufferBinding vertexBuffers[2] = {};
+            vertexBuffers[0].buffer = mesh->GetVertexBuffer();
+            vertexBuffers[0].offset = 0;
+            vertexBuffers[1].buffer = m_InstanceBuffer;
+            vertexBuffers[1].offset = batch.instanceOffset * sizeof(Systems::MeshInstance);
+            
+            SDL_BindGPUVertexBuffers(pass, 0, vertexBuffers, 2);
+            
+            SDL_GPUBufferBinding indexBufferBinding = {};
+            indexBufferBinding.buffer = mesh->GetIndexBuffer();
+            indexBufferBinding.offset = 0;
+            SDL_BindGPUIndexBuffer(pass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+            
+            SDL_DrawGPUIndexedPrimitives(pass, mesh->GetIndexCount(), static_cast<uint32_t>(batch.instances.size()), 0, 0, 0);
+            m_Stats.drawCalls++;
+        }
+        
+        // Render skinned meshes to shadow map
+        RenderSkinnedMeshesToShadowMap(pass, skinData);
+        
+        m_RenderDevice.EndShadowPass();
+    }
+    
+    void RenderSystem::RenderSkinnedMeshesToShadowMap(SDL_GPURenderPass* pass, const std::unordered_map<uint64_t, std::vector<glm::mat4>>& skinData) {
+        if (!m_ShadowMapSkinnedPipeline) return;
+        
+        SDL_BindGPUGraphicsPipeline(pass, m_ShadowMapSkinnedPipeline);
+        
+        m_Context.World->query<WorldTransform, MeshComponent, AnimatorComponent>()
+            .each([&](flecs::entity e, WorldTransform& t, MeshComponent& meshComp, AnimatorComponent& anim) {
+                if (!meshComp.mesh || !anim.skeleton) return;
+                
+                // Apply render offset to model matrix
+                glm::mat4 model = t.matrix;
+                if (meshComp.renderOffset != glm::vec3(0.0f)) {
+                    model = glm::translate(model, meshComp.renderOffset);
+                }
+                
+                // Push light space matrix (binding 0)
+                SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 0, &m_LightSpaceMatrix, sizeof(m_LightSpaceMatrix));
+                
+                // Push model matrix (binding 1)
+                SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 1, &model, sizeof(model));
+                
+                // Push skin matrices (binding 2)
+                std::vector<glm::mat4> skinMatrices(256, glm::mat4(1.0f));
+                auto it = skinData.find(e.id());
+                if (it != skinData.end()) {
+                    skinMatrices = it->second;
+                }
+                SDL_PushGPUVertexUniformData(m_RenderDevice.GetCommandBuffer(), 2, skinMatrices.data(), 256 * sizeof(glm::mat4));
+                
+                // Bind vertex buffer
+                SDL_GPUBufferBinding vertexBinding = {};
+                vertexBinding.buffer = meshComp.mesh->GetVertexBuffer();
+                vertexBinding.offset = 0;
+                SDL_BindGPUVertexBuffers(pass, 0, &vertexBinding, 1);
+                
+                // Bind index buffer
+                SDL_GPUBufferBinding indexBinding = {};
+                indexBinding.buffer = meshComp.mesh->GetIndexBuffer();
+                indexBinding.offset = 0;
+                SDL_BindGPUIndexBuffer(pass, &indexBinding, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+                
+                // Draw
+                SDL_DrawGPUIndexedPrimitives(pass, meshComp.mesh->GetIndexCount(), 1, 0, 0, 0);
+                m_Stats.drawCalls++;
+            });
     }
 
     void RenderSystem::DispatchLightCulling(const glm::mat4& view, const glm::mat4& proj) {
@@ -1360,6 +1771,11 @@ namespace Systems {
             
             // 2b. Light Culling Compute Pass
             DispatchLightCulling(view, proj);
+        }
+        
+        // Shadow Pass (render scene from light's perspective)
+        if (m_RenderDevice.IsShadowsEnabled()) {
+            RenderShadowPass(skinData);
         }
 
         // 3. Begin Main Render Pass
@@ -1768,7 +2184,20 @@ namespace Systems {
         
         SDL_BindGPUGraphicsPipeline(pass, m_ForwardPlusPipeline);
         
-        // Bind storage buffers (light buffer and tile indices) - Fragment set 2
+        // SDL_GPU requires samplers to be bound first, then storage buffers
+        // Shader layout: binding 0 = shadow sampler, binding 1 = light buffer, binding 2 = tile indices
+        
+        // Bind shadow map sampler - Fragment set 2, binding 0
+        SDL_GPUTexture* shadowMapTex = m_RenderDevice.GetShadowMapTexture();
+        SDL_GPUSampler* shadowSampler = m_RenderDevice.GetShadowSampler();
+        if (shadowMapTex && shadowSampler) {
+            SDL_GPUTextureSamplerBinding shadowBinding = {};
+            shadowBinding.texture = shadowMapTex;
+            shadowBinding.sampler = shadowSampler;
+            SDL_BindGPUFragmentSamplers(pass, 0, &shadowBinding, 1);
+        }
+        
+        // Bind storage buffers (light buffer and tile indices) - Fragment set 2, bindings 1 and 2
         SDL_GPUBuffer* storageBuffers[2] = { lightBuffer, tileBuffer };
         SDL_BindGPUFragmentStorageBuffers(pass, 0, storageBuffers, 2);
         
@@ -1780,13 +2209,20 @@ namespace Systems {
         viewProjUbo.view = view;
         viewProjUbo.proj = proj;
         
-        // Forward+ fragment shader uniform (includes directional light + screen info)
+        // Forward+ fragment shader uniform (includes directional light + screen info + shadows)
         struct ForwardPlusFragmentUBO {
             glm::vec4 dirLightDir;      // xyz = direction, w = intensity
             glm::vec4 dirLightColor;    // rgb = color, a = unused
             glm::vec4 ambientColor;     // rgb = ambient, a = unused
             glm::vec4 cameraPos;        // xyz = position, w = unused
             glm::vec4 screenSize;       // xy = screen size, zw = 1/size
+            // Shadow parameters
+            glm::mat4 lightSpaceMatrix;
+            float shadowBias;
+            float shadowNormalBias;
+            int32_t pcfSamples;
+            int32_t shadowsEnabled;
+            // Original padding
             float shininess;
             float _pad1;
             float _pad2;
@@ -1801,6 +2237,14 @@ namespace Systems {
         float screenW = static_cast<float>(m_RenderDevice.GetRenderWidth());
         float screenH = static_cast<float>(m_RenderDevice.GetRenderHeight());
         fragUbo.screenSize = glm::vec4(screenW, screenH, 1.0f / screenW, 1.0f / screenH);
+        
+        // Shadow settings
+        fragUbo.lightSpaceMatrix = m_LightSpaceMatrix;
+        fragUbo.shadowBias = m_RenderDevice.GetShadowBias();
+        fragUbo.shadowNormalBias = m_RenderDevice.GetShadowNormalBias();
+        fragUbo.pcfSamples = m_RenderDevice.GetShadowPcfSamples();
+        fragUbo.shadowsEnabled = m_RenderDevice.IsShadowsEnabled() ? 1 : 0;
+        
         fragUbo.shininess = 32.0f;
         
         // Query directional light

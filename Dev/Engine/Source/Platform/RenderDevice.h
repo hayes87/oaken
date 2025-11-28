@@ -89,12 +89,29 @@ namespace Platform {
         void UpdateLightBuffer(const void* lightData, uint32_t numLights);
         void DispatchLightCulling(SDL_GPUComputePipeline* cullingPipeline, const glm::mat4& view, const glm::mat4& proj);
         void EnsureForwardPlusBuffers();  // Create Forward+ buffers if they don't exist
+        
+        // Shadow mapping
+        bool IsShadowsEnabled() const { return m_ShadowsEnabled; }
+        void SetShadowsEnabled(bool enabled) { m_ShadowsEnabled = enabled; }
+        uint32_t GetShadowMapSize() const { return m_ShadowMapSize; }
+        void SetShadowMapSize(uint32_t size);
+        float GetShadowBias() const { return m_ShadowBias; }
+        void SetShadowBias(float bias) { m_ShadowBias = bias; }
+        float GetShadowNormalBias() const { return m_ShadowNormalBias; }
+        void SetShadowNormalBias(float bias) { m_ShadowNormalBias = bias; }
+        int GetShadowPcfSamples() const { return m_ShadowPcfSamples; }
+        void SetShadowPcfSamples(int samples) { m_ShadowPcfSamples = samples; }
+        SDL_GPUTexture* GetShadowMapTexture() const { return m_ShadowMapTexture; }
+        SDL_GPUSampler* GetShadowSampler() const { return m_ShadowSampler; }
+        bool BeginShadowPass();  // Begin render pass for shadow map
+        void EndShadowPass();    // End shadow pass
 
     private:
         void CreateDepthTexture(uint32_t width, uint32_t height);
         void CreateHDRTexture(uint32_t width, uint32_t height);
         void CreateForwardPlusBuffers(uint32_t width, uint32_t height);
         void CreateBloomTextures(uint32_t width, uint32_t height);
+        void CreateShadowMapTexture(uint32_t size);
 
         SDL_GPUDevice* m_Device = nullptr;
         Window* m_Window = nullptr;
@@ -135,6 +152,15 @@ namespace Platform {
         uint32_t m_NumTilesX = 0;
         uint32_t m_NumTilesY = 0;
         uint32_t m_TileBufferSize = 0;
+        
+        // Shadow mapping
+        bool m_ShadowsEnabled = true;  // Shadows enabled by default
+        uint32_t m_ShadowMapSize = 4096;     // Higher res shadow map
+        float m_ShadowBias = 0.005f;         // Depth bias
+        float m_ShadowNormalBias = 0.001f;   // Slope-based bias
+        int m_ShadowPcfSamples = 1;          // PCF kernel size (0=hard, 1=3x3, 2=5x5)
+        SDL_GPUTexture* m_ShadowMapTexture = nullptr;
+        SDL_GPUSampler* m_ShadowSampler = nullptr;  // Comparison sampler for PCF
         
         // Frame validity
         bool m_FrameValid = false;
