@@ -105,6 +105,28 @@ namespace Platform {
         SDL_GPUSampler* GetShadowSampler() const { return m_ShadowSampler; }
         bool BeginShadowPass();  // Begin render pass for shadow map
         void EndShadowPass();    // End shadow pass
+        
+        // SSGI (Screen-Space Global Illumination)
+        bool IsSSGIEnabled() const { return m_SSGIEnabled; }
+        void SetSSGIEnabled(bool enabled) { m_SSGIEnabled = enabled; }
+        float GetSSGIIntensity() const { return m_SSGIIntensity; }
+        void SetSSGIIntensity(float intensity) { m_SSGIIntensity = intensity; }
+        float GetSSGIMaxDistance() const { return m_SSGIMaxDistance; }
+        void SetSSGIMaxDistance(float distance) { m_SSGIMaxDistance = distance; }
+        int GetSSGINumRays() const { return m_SSGINumRays; }
+        void SetSSGINumRays(int rays) { m_SSGINumRays = rays; }
+        int GetSSGINumSteps() const { return m_SSGINumSteps; }
+        void SetSSGINumSteps(int steps) { m_SSGINumSteps = steps; }
+        float GetSSGITemporalBlend() const { return m_SSGITemporalBlend; }
+        void SetSSGITemporalBlend(float blend) { m_SSGITemporalBlend = blend; }
+        int GetSSGIDebugMode() const { return m_SSGIDebugMode; }
+        void SetSSGIDebugMode(int mode) { m_SSGIDebugMode = mode; }
+        SDL_GPUTexture* GetSSGITexture() const { return m_SSGITexture; }
+        SDL_GPUTexture* GetSSGIHistoryTexture() const { return m_SSGIHistoryTexture; }
+        SDL_GPUTexture* GetSSGIDenoiseTexture() const { return m_SSGIDenoiseTexture; }
+        SDL_GPUTexture* GetNoiseTexture() const { return m_NoiseTexture; }
+        bool WasSSGIReset() const { return m_SSGIWasReset; }
+        void ClearSSGIResetFlag() { m_SSGIWasReset = false; }
 
     private:
         void CreateDepthTexture(uint32_t width, uint32_t height);
@@ -112,6 +134,8 @@ namespace Platform {
         void CreateForwardPlusBuffers(uint32_t width, uint32_t height);
         void CreateBloomTextures(uint32_t width, uint32_t height);
         void CreateShadowMapTexture(uint32_t size);
+        void CreateSSGITextures(uint32_t width, uint32_t height);
+        void CreateNoiseTexture();
 
         SDL_GPUDevice* m_Device = nullptr;
         Window* m_Window = nullptr;
@@ -161,6 +185,22 @@ namespace Platform {
         int m_ShadowPcfSamples = 1;          // PCF kernel size (0=hard, 1=3x3, 2=5x5)
         SDL_GPUTexture* m_ShadowMapTexture = nullptr;
         SDL_GPUSampler* m_ShadowSampler = nullptr;  // Comparison sampler for PCF
+        
+        // SSGI settings and textures
+        bool m_SSGIEnabled = true;       // Enable SSGI by default
+        float m_SSGIIntensity = 0.2f;    // GI intensity multiplier (kept low for stability)
+        float m_SSGIMaxDistance = 5.0f; // Maximum ray distance in world units (shorter = more stable)
+        int m_SSGINumRays = 4;           // Rays per pixel (1-8)
+        int m_SSGINumSteps = 16;         // Ray march steps (8-32)
+        float m_SSGITemporalBlend = 0.95f;// Temporal accumulation (0.95 = 95% history, very stable)
+        int m_SSGIDebugMode = 0;         // 0=composite, 1=GI only, 2=scene only
+        SDL_GPUTexture* m_SSGITexture = nullptr;        // Current frame GI
+        SDL_GPUTexture* m_SSGIHistoryTexture = nullptr; // Previous frame GI (for temporal)
+        SDL_GPUTexture* m_SSGIDenoiseTexture = nullptr; // Denoised GI output
+        SDL_GPUTexture* m_NoiseTexture = nullptr;       // Blue noise for ray jittering
+        uint32_t m_SSGIWidth = 0;
+        uint32_t m_SSGIHeight = 0;
+        bool m_SSGIWasReset = false;     // True when SSGI textures were recreated
         
         // Frame validity
         bool m_FrameValid = false;

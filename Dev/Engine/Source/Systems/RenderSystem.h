@@ -106,6 +106,7 @@ namespace Systems {
         void CreateDepthOnlyPipeline();
         void CreateLightCullingPipeline();
         void CreateShadowMapPipeline();
+        void CreateSSGIPipelines();
         
         void RenderToneMappingPass();  // Tone map HDR -> Swapchain
         void RenderDepthPrePass(const glm::mat4& view, const glm::mat4& proj);  // Depth pre-pass for Forward+
@@ -137,6 +138,10 @@ namespace Systems {
         SDL_GPUGraphicsPipeline* m_BloomCompositePipeline = nullptr;
         SDL_GPUTexture* m_BloomResultTexture = nullptr;  // Points to final blurred bloom texture
         
+        // Cached matrices for post-processing passes
+        glm::mat4 m_CurrentView = glm::mat4(1.0f);
+        glm::mat4 m_CurrentProj = glm::mat4(1.0f);
+        
         // Forward+ rendering method
         void CreateForwardPlusPipeline();
         void RenderBatchesForwardPlus(SDL_GPURenderPass* pass, const glm::mat4& view, const glm::mat4& proj);
@@ -144,6 +149,16 @@ namespace Systems {
         // Bloom rendering methods
         void CreateBloomPipelines();
         void RenderBloomPass();  // Full bloom pass (bright extract + blur + composite)
+        
+        // SSGI rendering
+        SDL_GPUGraphicsPipeline* m_SSGIPipeline = nullptr;           // Ray march GI
+        SDL_GPUGraphicsPipeline* m_SSGITemporalPipeline = nullptr;   // Temporal accumulation
+        SDL_GPUGraphicsPipeline* m_SSGIDenoisePipeline = nullptr;    // Spatial denoising
+        SDL_GPUGraphicsPipeline* m_SSGICompositePipeline = nullptr;  // Composite with scene
+        glm::mat4 m_PrevViewProjMatrix = glm::mat4(1.0f);            // For temporal reprojection
+        uint32_t m_FrameIndex = 0;                                   // For noise jittering
+        
+        void RenderSSGIPass(const glm::mat4& view, const glm::mat4& proj);
     };
 
 }

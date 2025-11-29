@@ -140,9 +140,23 @@ void main() {
     vec3 ambient = lights.ambientColor.rgb * materialDiffuse;
     vec3 lighting = calculateDirectionalLight(normal, viewDir, shadow);
     
+    // Debug: show if point lights are being received
+    // if (lights.numPointLights > 0) {
+    //     outColor = vec4(1.0, 0.0, 0.0, 1.0);  // Red = has point lights
+    //     return;
+    // }
+    
     for (int i = 0; i < lights.numPointLights && i < MAX_POINT_LIGHTS; ++i) {
         lighting += calculatePointLight(i, normal, inWorldPos, viewDir);
     }
+    
+    // Debug: visualize point light contribution
+    // vec3 pointLightContrib = vec3(0.0);
+    // for (int i = 0; i < lights.numPointLights && i < MAX_POINT_LIGHTS; ++i) {
+    //     pointLightContrib += calculatePointLight(i, normal, inWorldPos, viewDir);
+    // }
+    // outColor = vec4(pointLightContrib, 1.0);
+    // return;
     
     vec3 finalColor = ambient + lighting;
     outColor = vec4(finalColor, 1.0);

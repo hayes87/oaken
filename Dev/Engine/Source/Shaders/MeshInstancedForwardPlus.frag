@@ -190,16 +190,21 @@ void main() {
     // Forward+ path: read lights from tile buffer
     ivec2 screenPos = ivec2(gl_FragCoord.xy);
     ivec2 tileId = screenPos / TILE_SIZE;
-    uint numTilesX = uint((uniforms.screenSize.x + float(TILE_SIZE) - 1.0) / float(TILE_SIZE));
+    
+    // CRITICAL: Use uint for all tile calculations to match compute shader exactly
+    uint screenWidthU = uint(uniforms.screenSize.x);
+    uint numTilesX = (screenWidthU + uint(TILE_SIZE) - 1u) / uint(TILE_SIZE);
     uint tileIndex = uint(tileId.y) * numTilesX + uint(tileId.x);
     uint tileOffset = tileIndex * (MAX_LIGHTS_PER_TILE + 1);
     
     uint lightCount = tileLightIndices.data[tileOffset];
     lightCount = min(lightCount, MAX_LIGHTS_PER_TILE);
     
+    // Read lights from tile
+    int totalLights = lightBuffer.numLights;
     for (uint i = 0; i < lightCount; i++) {
         uint lightIndex = tileLightIndices.data[tileOffset + 1 + i];
-        if (lightIndex < uint(lightBuffer.numLights)) {
+        if (lightIndex < uint(totalLights)) {
             lighting += calculatePointLight(lightBuffer.lights[lightIndex], normal, inWorldPos, viewDir);
         }
     }

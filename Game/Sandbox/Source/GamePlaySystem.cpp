@@ -26,6 +26,15 @@ void GamePlaySystem::Init() {
             float time = SDL_GetTicks() / 1000.0f;
             t.position.y = std::sin(time * 2.0f) * 0.5f;
         });
+
+    // Orbit System - moves entities with OrbitComponent in circular patterns
+    m_Context.World->system<LocalTransform, OrbitComponent>()
+        .each([](flecs::entity e, LocalTransform& t, OrbitComponent& orbit) {
+            float time = SDL_GetTicks() / 1000.0f;
+            float angle = time * orbit.speed + orbit.phase;
+            t.position.x = orbit.center.x + std::cos(angle) * orbit.radius;
+            t.position.z = orbit.center.y + std::sin(angle) * orbit.radius;
+        });
 }
 
 void GamePlaySystem::OnAction(const Platform::ActionEvent& event) {

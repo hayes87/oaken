@@ -80,6 +80,23 @@ namespace Platform {
                 SDL_ReleaseGPUTexture(m_Device, m_DepthTexture);
                 m_DepthTexture = nullptr;
             }
+            // Release SSGI textures
+            if (m_SSGITexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_SSGITexture);
+                m_SSGITexture = nullptr;
+            }
+            if (m_SSGIHistoryTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_SSGIHistoryTexture);
+                m_SSGIHistoryTexture = nullptr;
+            }
+            if (m_SSGIDenoiseTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_SSGIDenoiseTexture);
+                m_SSGIDenoiseTexture = nullptr;
+            }
+            if (m_NoiseTexture) {
+                SDL_ReleaseGPUTexture(m_Device, m_NoiseTexture);
+                m_NoiseTexture = nullptr;
+            }
             if (m_Window) {
                 SDL_ReleaseWindowFromGPUDevice(m_Device, m_Window->GetNativeWindow());
             }
@@ -165,6 +182,118 @@ namespace Platform {
         }
     }
 
+    void RenderDevice::CreateSSGITextures(uint32_t width, uint32_t height) {
+        // SSGI at half resolution for performance
+        uint32_t ssgiWidth = width / 2;
+        uint32_t ssgiHeight = height / 2;
+        
+        // Release existing textures
+        if (m_SSGITexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_SSGITexture);
+        }
+        if (m_SSGIHistoryTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_SSGIHistoryTexture);
+        }
+        if (m_SSGIDenoiseTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_SSGIDenoiseTexture);
+        }
+        
+        SDL_GPUTextureCreateInfo createInfo = {};
+        createInfo.type = SDL_GPU_TEXTURETYPE_2D;
+        createInfo.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;  // HDR format for GI
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        createInfo.width = ssgiWidth;
+        createInfo.height = ssgiHeight;
+        createInfo.layer_count_or_depth = 1;
+        createInfo.num_levels = 1;
+        createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        
+        m_SSGITexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        m_SSGIHistoryTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        m_SSGIDenoiseTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        
+        m_SSGIWidth = ssgiWidth;
+        m_SSGIHeight = ssgiHeight;
+        m_SSGIWasReset = true;  // Signal that history buffer is invalid
+        
+        if (m_SSGITexture && m_SSGIHistoryTexture && m_SSGIDenoiseTexture) {
+            std::cout << "SSGI textures created: " << ssgiWidth << "x" << ssgiHeight << " (RGBA16F)" << std::endl;
+        }
+    }
+
+    void RenderDevice::CreateNoiseTexture() {
+        // Create 64x64 blue noise texture for ray jittering
+        const uint32_t noiseSize = 64;
+        
+        if (m_NoiseTexture) {
+            SDL_ReleaseGPUTexture(m_Device, m_NoiseTexture);
+        }
+        
+        SDL_GPUTextureCreateInfo createInfo = {};
+        createInfo.type = SDL_GPU_TEXTURETYPE_2D;
+        createInfo.format = SDL_GPU_TEXTUREFORMAT_R8G8_UNORM;  // RG for 2D noise
+        createInfo.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        createInfo.width = noiseSize;
+        createInfo.height = noiseSize;
+        createInfo.layer_count_or_depth = 1;
+        createInfo.num_levels = 1;
+        createInfo.sample_count = SDL_GPU_SAMPLECOUNT_1;
+        
+        m_NoiseTexture = SDL_CreateGPUTexture(m_Device, &createInfo);
+        
+        if (m_NoiseTexture) {
+            // Generate blue noise pattern (using interleaved gradient noise)
+            std::vector<uint8_t> noiseData(noiseSize * noiseSize * 2);
+            
+            for (uint32_t y = 0; y < noiseSize; y++) {
+                for (uint32_t x = 0; x < noiseSize; x++) {
+                    // Interleaved gradient noise (R)
+                    float n1 = fmodf(52.9829189f * fmodf(0.06711056f * float(x) + 0.00583715f * float(y), 1.0f), 1.0f);
+                    // Different offset for second channel (G)
+                    float n2 = fmodf(52.9829189f * fmodf(0.00583715f * float(x) + 0.06711056f * float(y), 1.0f), 1.0f);
+                    
+                    size_t idx = (y * noiseSize + x) * 2;
+                    noiseData[idx + 0] = static_cast<uint8_t>(n1 * 255.0f);
+                    noiseData[idx + 1] = static_cast<uint8_t>(n2 * 255.0f);
+                }
+            }
+            
+            // Upload noise data to GPU
+            SDL_GPUTransferBufferCreateInfo transferInfo = {};
+            transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+            transferInfo.size = noiseData.size();
+            
+            SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(m_Device, &transferInfo);
+            if (transferBuffer) {
+                void* map = SDL_MapGPUTransferBuffer(m_Device, transferBuffer, false);
+                memcpy(map, noiseData.data(), noiseData.size());
+                SDL_UnmapGPUTransferBuffer(m_Device, transferBuffer);
+                
+                SDL_GPUCommandBuffer* uploadCmd = SDL_AcquireGPUCommandBuffer(m_Device);
+                SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(uploadCmd);
+                
+                SDL_GPUTextureTransferInfo srcInfo = {};
+                srcInfo.transfer_buffer = transferBuffer;
+                srcInfo.offset = 0;
+                
+                SDL_GPUTextureRegion dstRegion = {};
+                dstRegion.texture = m_NoiseTexture;
+                dstRegion.w = noiseSize;
+                dstRegion.h = noiseSize;
+                dstRegion.d = 1;
+                
+                SDL_UploadToGPUTexture(copyPass, &srcInfo, &dstRegion, false);
+                
+                SDL_EndGPUCopyPass(copyPass);
+                SDL_SubmitGPUCommandBuffer(uploadCmd);
+                
+                SDL_ReleaseGPUTransferBuffer(m_Device, transferBuffer);
+            }
+            
+            std::cout << "SSGI noise texture created: " << noiseSize << "x" << noiseSize << std::endl;
+        }
+    }
+
     void RenderDevice::BeginFrame() {
         m_FrameValid = false;  // Reset at start of frame
         
@@ -210,6 +339,18 @@ namespace Platform {
         uint32_t bloomHeight = h / 2;
         if (m_BloomEnabled && (!m_BloomBrightTexture || bloomWidth != m_BloomWidth || bloomHeight != m_BloomHeight)) {
             CreateBloomTextures(w, h);
+        }
+        
+        // Recreate SSGI textures if size changed or don't exist (only if SSGI enabled)
+        uint32_t ssgiWidth = w / 2;
+        uint32_t ssgiHeight = h / 2;
+        if (m_SSGIEnabled && (!m_SSGITexture || ssgiWidth != m_SSGIWidth || ssgiHeight != m_SSGIHeight)) {
+            CreateSSGITextures(w, h);
+        }
+        
+        // Create noise texture if it doesn't exist (only needed once)
+        if (m_SSGIEnabled && !m_NoiseTexture) {
+            CreateNoiseTexture();
         }
     }
 
@@ -506,6 +647,16 @@ namespace Platform {
         );
         
         SDL_PushGPUComputeUniformData(m_CommandBuffer, 0, &viewData, sizeof(viewData));
+        
+        // Debug: Log tile calculation once
+        static bool loggedTileCalc = false;
+        if (!loggedTileCalc) {
+            uint32_t computedNumTilesX = (m_RenderWidth + FORWARD_PLUS_TILE_SIZE - 1) / FORWARD_PLUS_TILE_SIZE;
+            std::cout << "[Forward+] screenSize: " << m_RenderWidth << "x" << m_RenderHeight 
+                      << ", numTilesX: " << m_NumTilesX << " (computed: " << computedNumTilesX << ")"
+                      << ", TILE_SIZE: " << FORWARD_PLUS_TILE_SIZE << std::endl;
+            loggedTileCalc = true;
+        }
         
         // Dispatch compute shader - one workgroup per tile
         SDL_DispatchGPUCompute(computePass, m_NumTilesX, m_NumTilesY, 1);

@@ -311,6 +311,12 @@ void Engine::HandleDebugInput() {
         m_ShowSkeleton = !m_ShowSkeleton;
         LOG_CORE_INFO("Skeleton: {}", m_ShowSkeleton ? "ON" : "OFF");
     }
+    // F3 toggles SSGI
+    if (m_Input->WasKeyPressed(SDL_SCANCODE_F3)) {
+        bool ssgiEnabled = !m_RenderDevice->IsSSGIEnabled();
+        m_RenderDevice->SetSSGIEnabled(ssgiEnabled);
+        LOG_CORE_INFO("SSGI: {}", ssgiEnabled ? "ON" : "OFF");
+    }
 }
 
 void Engine::UpdateFPSCounter(float deltaTime) {

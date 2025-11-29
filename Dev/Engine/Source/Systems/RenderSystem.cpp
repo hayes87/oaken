@@ -45,6 +45,18 @@ namespace Systems {
         if (m_BloomCompositePipeline) {
             SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_BloomCompositePipeline);
         }
+        if (m_SSGIPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_SSGIPipeline);
+        }
+        if (m_SSGITemporalPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_SSGITemporalPipeline);
+        }
+        if (m_SSGIDenoisePipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_SSGIDenoisePipeline);
+        }
+        if (m_SSGICompositePipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_RenderDevice.GetDevice(), m_SSGICompositePipeline);
+        }
         if (m_Sampler) {
             SDL_ReleaseGPUSampler(m_RenderDevice.GetDevice(), m_Sampler);
         }
@@ -71,6 +83,7 @@ namespace Systems {
         CreateForwardPlusPipeline();
         CreateShadowMapPipeline();
         CreateShadowMapSkinnedPipeline();
+        CreateSSGIPipelines();
         
         // Nearest neighbor sampler (for sprites/pixel art)
         SDL_GPUSamplerCreateInfo samplerInfo = {};
@@ -660,6 +673,160 @@ namespace Systems {
                 m_BloomCompositePipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
                 if (m_BloomCompositePipeline) {
                     LOG_CORE_INFO("Bloom Composite Pipeline Created Successfully!");
+                }
+            }
+        }
+    }
+
+    void RenderSystem::CreateSSGIPipelines() {
+        SDL_GPUDevice* device = m_RenderDevice.GetDevice();
+        const char* driver = SDL_GetGPUDeviceDriver(device);
+        bool isD3D12 = std::string(driver) == "direct3d12";
+        
+        // ========== SSGI Main Pipeline (Ray March) ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/SSGI.frag.dxil" : "Assets/Shaders/SSGI.frag.spv";
+            
+            // Fullscreen vertex: 0 samplers, 0 storage textures, 0 storage buffers, 0 uniform buffers
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            // SSGI fragment: 4 samplers (color, depth, normal, noise), 0 storage, 1 uniform buffer
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load SSGI shaders - SSGI will be unavailable");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+                colorTargetDesc.blend_state.enable_blend = false;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_SSGIPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_SSGIPipeline) {
+                    LOG_CORE_INFO("SSGI Pipeline Created Successfully!");
+                }
+            }
+        }
+        
+        // ========== SSGI Temporal Accumulation Pipeline ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/SSGITemporal.frag.dxil" : "Assets/Shaders/SSGITemporal.frag.spv";
+            
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            // Temporal: 4 samplers (current, history, depth, velocity), 1 uniform buffer
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 4, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load SSGI Temporal shaders");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+                colorTargetDesc.blend_state.enable_blend = false;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_SSGITemporalPipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_SSGITemporalPipeline) {
+                    LOG_CORE_INFO("SSGI Temporal Pipeline Created Successfully!");
+                }
+            }
+        }
+        
+        // ========== SSGI Denoise Pipeline ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/SSGIDenoise.frag.dxil" : "Assets/Shaders/SSGIDenoise.frag.spv";
+            
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            // Denoise: 3 samplers (GI, depth, normal), 1 uniform buffer
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 3, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load SSGI Denoise shaders");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+                colorTargetDesc.blend_state.enable_blend = false;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_SSGIDenoisePipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_SSGIDenoisePipeline) {
+                    LOG_CORE_INFO("SSGI Denoise Pipeline Created Successfully!");
+                }
+            }
+        }
+        
+        // ========== SSGI Composite Pipeline ==========
+        {
+            std::string vertPath = isD3D12 ? "Assets/Shaders/Fullscreen.vert.dxil" : "Assets/Shaders/Fullscreen.vert.spv";
+            std::string fragPath = isD3D12 ? "Assets/Shaders/SSGIComposite.frag.dxil" : "Assets/Shaders/SSGIComposite.frag.spv";
+            
+            auto vertShader = m_ResourceManager.LoadShader(vertPath, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0, 0, 0);
+            // Composite: 2 samplers (scene, GI), 1 uniform buffer
+            auto fragShader = m_ResourceManager.LoadShader(fragPath, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0, 0, 1);
+            
+            if (!vertShader || !fragShader) {
+                LOG_CORE_WARN("Failed to load SSGI Composite shaders");
+            } else {
+                SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {};
+                pipelineInfo.vertex_shader = vertShader->GetShader();
+                pipelineInfo.fragment_shader = fragShader->GetShader();
+                pipelineInfo.vertex_input_state.num_vertex_buffers = 0;
+                pipelineInfo.vertex_input_state.num_vertex_attributes = 0;
+                pipelineInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+                pipelineInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+                pipelineInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+                
+                // Output to HDR texture with additive blending
+                SDL_GPUColorTargetDescription colorTargetDesc = {};
+                colorTargetDesc.format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+                colorTargetDesc.blend_state.enable_blend = true;
+                colorTargetDesc.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+                colorTargetDesc.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+                colorTargetDesc.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+                colorTargetDesc.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+                colorTargetDesc.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+                colorTargetDesc.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+                pipelineInfo.target_info.num_color_targets = 1;
+                pipelineInfo.target_info.color_target_descriptions = &colorTargetDesc;
+                pipelineInfo.target_info.has_depth_stencil_target = false;
+                
+                m_SSGICompositePipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+                if (m_SSGICompositePipeline) {
+                    LOG_CORE_INFO("SSGI Composite Pipeline Created Successfully!");
                 }
             }
         }
@@ -1442,6 +1609,7 @@ namespace Systems {
         struct GPUPointLight {
             glm::vec4 positionRadius;  // xyz = position, w = radius
             glm::vec4 colorIntensity;  // rgb = color, w = intensity
+            uint64_t entityId;         // For sorting to ensure consistent order
         };
         
         // Header: numLights + 3 padding ints = 16 bytes
@@ -1452,9 +1620,15 @@ namespace Systems {
             int32_t _pad2;
         };
         
+        // GPU-side light structure (without entityId)
+        struct GPUPointLightPacked {
+            glm::vec4 positionRadius;
+            glm::vec4 colorIntensity;
+        };
+        
         constexpr int MAX_POINT_LIGHTS = 1024;
         
-        // Collect all point lights
+        // Collect all point lights with entity IDs for stable sorting
         std::vector<GPUPointLight> lights;
         lights.reserve(MAX_POINT_LIGHTS);
         
@@ -1465,13 +1639,19 @@ namespace Systems {
                     GPUPointLight gpuLight;
                     gpuLight.positionRadius = glm::vec4(pos, light.radius);
                     gpuLight.colorIntensity = glm::vec4(light.color, light.intensity);
+                    gpuLight.entityId = e.id();
                     lights.push_back(gpuLight);
                 }
             });
         
-        // Build buffer data: header + lights
+        // Sort by entity ID for consistent ordering between frames
+        std::sort(lights.begin(), lights.end(), [](const GPUPointLight& a, const GPUPointLight& b) {
+            return a.entityId < b.entityId;
+        });
+        
+        // Build buffer data: header + packed lights (without entityId)
         std::vector<uint8_t> bufferData;
-        bufferData.resize(sizeof(LightBufferHeader) + lights.size() * sizeof(GPUPointLight));
+        bufferData.resize(sizeof(LightBufferHeader) + lights.size() * sizeof(GPUPointLightPacked));
         
         LightBufferHeader header;
         header.numLights = static_cast<int32_t>(lights.size());
@@ -1480,8 +1660,26 @@ namespace Systems {
         header._pad2 = 0;
         
         memcpy(bufferData.data(), &header, sizeof(header));
-        if (!lights.empty()) {
-            memcpy(bufferData.data() + sizeof(header), lights.data(), lights.size() * sizeof(GPUPointLight));
+        
+        // Debug: log light positions once
+        static bool loggedLights = false;
+        if (!loggedLights && !lights.empty()) {
+            LOG_CORE_INFO("Forward+ Light Buffer: {} lights", lights.size());
+            for (size_t i = 0; i < std::min(lights.size(), size_t(4)); i++) {
+                LOG_CORE_INFO("  Light[{}]: pos=({:.1f},{:.1f},{:.1f}), radius={:.1f}, intensity={:.1f}",
+                    i, lights[i].positionRadius.x, lights[i].positionRadius.y, lights[i].positionRadius.z,
+                    lights[i].positionRadius.w, lights[i].colorIntensity.w);
+            }
+            loggedLights = true;
+        }
+        
+        // Pack lights without entityId
+        for (size_t i = 0; i < lights.size(); i++) {
+            GPUPointLightPacked packed;
+            packed.positionRadius = lights[i].positionRadius;
+            packed.colorIntensity = lights[i].colorIntensity;
+            memcpy(bufferData.data() + sizeof(header) + i * sizeof(GPUPointLightPacked), 
+                   &packed, sizeof(GPUPointLightPacked));
         }
         
         // Ensure Forward+ buffers exist before updating
@@ -1759,6 +1957,10 @@ namespace Systems {
             view = glm::lookAt(glm::vec3(0, 2, 5), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
             proj = glm::perspectiveRH_ZO(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
         }
+        
+        // Cache matrices for post-processing passes (SSGI, etc.)
+        m_CurrentView = view;
+        m_CurrentProj = proj;
 
         // Forward+ passes (depth pre-pass + light culling)
         if (m_RenderDevice.IsForwardPlusEnabled()) {
@@ -1843,17 +2045,34 @@ namespace Systems {
                         lightUbo.ambientColor = glm::vec4(light.ambient, 1.0f);
                     });
                 
-                // Query point lights
-                int pointLightIdx = 0;
+                // Query point lights - collect all and sort by distance to camera
+                struct LightInfo {
+                    glm::vec3 pos;
+                    float radius;
+                    glm::vec3 color;
+                    float intensity;
+                    float distSq;
+                };
+                std::vector<LightInfo> allLights;
                 m_Context.World->query<const WorldTransform, const PointLight>()
                     .each([&](flecs::entity e, const WorldTransform& t, const PointLight& light) {
-                        if (pointLightIdx < MAX_POINT_LIGHTS) {
-                            glm::vec3 pos = glm::vec3(t.matrix[3]);
-                            lightUbo.pointLightPos[pointLightIdx] = glm::vec4(pos, light.radius);
-                            lightUbo.pointLightColor[pointLightIdx] = glm::vec4(light.color, light.intensity);
-                            pointLightIdx++;
-                        }
+                        glm::vec3 pos = glm::vec3(t.matrix[3]);
+                        float distSq = glm::dot(pos - cameraPosition, pos - cameraPosition);
+                        allLights.push_back({pos, light.radius, light.color, light.intensity, distSq});
                     });
+                
+                // Sort by distance (closest first)
+                std::sort(allLights.begin(), allLights.end(), 
+                    [](const LightInfo& a, const LightInfo& b) { return a.distSq < b.distSq; });
+                
+                // Take up to MAX_POINT_LIGHTS closest
+                int pointLightIdx = 0;
+                for (const auto& light : allLights) {
+                    if (pointLightIdx >= MAX_POINT_LIGHTS) break;
+                    lightUbo.pointLightPos[pointLightIdx] = glm::vec4(light.pos, light.radius);
+                    lightUbo.pointLightColor[pointLightIdx] = glm::vec4(light.color, light.intensity);
+                    pointLightIdx++;
+                }
                 lightUbo.numPointLights = pointLightIdx;
                 
                 // Shadow parameters
@@ -2620,7 +2839,355 @@ namespace Systems {
         m_BloomResultTexture = nullptr;
     }
 
+    void RenderSystem::RenderSSGIPass(const glm::mat4& view, const glm::mat4& proj) {
+        if (!m_SSGIPipeline || !m_RenderDevice.IsSSGIEnabled()) return;
+        
+        SDL_GPUTexture* ssgiTexture = m_RenderDevice.GetSSGITexture();
+        SDL_GPUTexture* ssgiHistoryTexture = m_RenderDevice.GetSSGIHistoryTexture();
+        SDL_GPUTexture* ssgiDenoiseTexture = m_RenderDevice.GetSSGIDenoiseTexture();
+        SDL_GPUTexture* hdrTexture = m_RenderDevice.GetHDRTexture();
+        SDL_GPUTexture* depthTexture = m_RenderDevice.GetDepthTexture();
+        SDL_GPUTexture* noiseTexture = m_RenderDevice.GetNoiseTexture();
+        
+        if (!ssgiTexture || !ssgiHistoryTexture || !hdrTexture || !depthTexture) {
+            return;
+        }
+        
+        // Reset frame index when SSGI textures are recreated (e.g., window resize)
+        // This ensures we don't blend with garbage history buffer
+        if (m_RenderDevice.WasSSGIReset()) {
+            m_FrameIndex = 0;
+            m_RenderDevice.ClearSSGIResetFlag();
+        }
+        
+        SDL_GPUCommandBuffer* cmdBuffer = m_RenderDevice.GetCommandBuffer();
+        if (!cmdBuffer) return;
+        if (!cmdBuffer) return;
+        
+        // End the current render pass (scene rendering is done)
+        m_RenderDevice.EndRenderPass();
+        
+        // Calculate matrices
+        glm::mat4 invView = glm::inverse(view);
+        glm::mat4 invProj = glm::inverse(proj);
+        glm::mat4 viewProj = proj * view;
+        
+        // ========== Pass 1: SSGI Ray Marching ==========
+        {
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = ssgiTexture;
+            colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            colorTarget.clear_color = { 0.0f, 0.0f, 0.0f, 0.0f };
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_SSGIPipeline);
+            
+            // Bind samplers: color, depth, normal (using depth to reconstruct), noise
+            SDL_GPUTextureSamplerBinding texBindings[4] = {};
+            texBindings[0].texture = hdrTexture;
+            texBindings[0].sampler = m_LinearSampler;
+            texBindings[1].texture = depthTexture;
+            texBindings[1].sampler = m_LinearSampler;
+            texBindings[2].texture = depthTexture;  // Using depth for normal reconstruction
+            texBindings[2].sampler = m_LinearSampler;
+            texBindings[3].texture = noiseTexture ? noiseTexture : depthTexture;  // Fallback if no noise
+            texBindings[3].sampler = m_Sampler;  // Nearest for noise
+            
+            SDL_BindGPUFragmentSamplers(pass, 0, texBindings, 4);
+            
+            // SSGI parameters
+            struct SSGIParams {
+                glm::mat4 viewMatrix;
+                glm::mat4 projMatrix;
+                glm::mat4 invViewMatrix;
+                glm::mat4 invProjMatrix;
+                glm::mat4 prevViewProjMatrix;
+                glm::vec4 cameraPos;
+                glm::vec4 screenSize;
+                float nearPlane;
+                float farPlane;
+                float intensity;
+                float maxDistance;
+                int32_t numRays;
+                int32_t numSteps;
+                float thickness;
+                float frameIndex;
+            } params;
+            
+            params.viewMatrix = view;
+            params.projMatrix = proj;
+            params.invViewMatrix = invView;
+            params.invProjMatrix = invProj;
+            params.prevViewProjMatrix = m_PrevViewProjMatrix;
+            params.cameraPos = glm::vec4(invView[3]);  // Extract camera position
+            // Use full resolution for screen size since we sample depth at full res
+            // The shader uses these for pixel coordinate calculations  
+            params.screenSize = glm::vec4(
+                static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                static_cast<float>(m_RenderDevice.GetRenderHeight()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderHeight())
+            );
+            params.nearPlane = 0.1f;
+            params.farPlane = 100.0f;
+            params.intensity = m_RenderDevice.GetSSGIIntensity();
+            params.maxDistance = m_RenderDevice.GetSSGIMaxDistance();
+            params.numRays = m_RenderDevice.GetSSGINumRays();
+            params.numSteps = m_RenderDevice.GetSSGINumSteps();
+            params.thickness = 0.1f;
+            params.frameIndex = static_cast<float>(m_FrameIndex);
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &params, sizeof(params));
+            
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            m_Stats.drawCalls++;
+            
+            SDL_EndGPURenderPass(pass);
+        }
+        
+        // ========== Pass 2: Temporal Accumulation ==========
+        if (m_SSGITemporalPipeline && ssgiHistoryTexture) {
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = ssgiDenoiseTexture;  // Output to denoise texture (swap buffers)
+            colorTarget.load_op = SDL_GPU_LOADOP_DONT_CARE;
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_SSGITemporalPipeline);
+            
+            SDL_GPUTextureSamplerBinding texBindings[4] = {};
+            texBindings[0].texture = ssgiTexture;        // Current GI
+            texBindings[0].sampler = m_LinearSampler;
+            texBindings[1].texture = ssgiHistoryTexture; // History
+            texBindings[1].sampler = m_LinearSampler;
+            texBindings[2].texture = depthTexture;       // Depth
+            texBindings[2].sampler = m_LinearSampler;
+            texBindings[3].texture = depthTexture;       // Velocity (placeholder)
+            texBindings[3].sampler = m_LinearSampler;
+            
+            SDL_BindGPUFragmentSamplers(pass, 0, texBindings, 4);
+            
+            struct TemporalParams {
+                glm::mat4 viewMatrix;
+                glm::mat4 projMatrix;
+                glm::mat4 invViewMatrix;
+                glm::mat4 invProjMatrix;
+                glm::mat4 prevViewProjMatrix;
+                glm::vec4 screenSize;
+                float temporalBlend;
+                float depthThreshold;
+                float normalThreshold;
+                int32_t useVelocity;
+            } tParams;
+            
+            tParams.viewMatrix = view;
+            tParams.projMatrix = proj;
+            tParams.invViewMatrix = invView;
+            tParams.invProjMatrix = invProj;
+            tParams.prevViewProjMatrix = m_PrevViewProjMatrix;
+            tParams.screenSize = glm::vec4(
+                static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                static_cast<float>(m_RenderDevice.GetRenderHeight()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderHeight())
+            );
+            // On first frame (or first few frames), don't blend with history (it's uninitialized)
+            // Use more frames to allow temporal accumulation to stabilize
+            tParams.temporalBlend = (m_FrameIndex < 8) ? 0.0f : m_RenderDevice.GetSSGITemporalBlend();
+            tParams.depthThreshold = 0.05f;
+            tParams.normalThreshold = 0.95f;
+            tParams.useVelocity = 0;
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &tParams, sizeof(tParams));
+            
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            m_Stats.drawCalls++;
+            
+            SDL_EndGPURenderPass(pass);
+        }
+        
+        // ========== Pass 3: Spatial Denoising (Horizontal) ==========
+        if (m_SSGIDenoisePipeline) {
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = ssgiTexture;  // Ping-pong: write to ssgiTexture
+            colorTarget.load_op = SDL_GPU_LOADOP_DONT_CARE;
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_SSGIDenoisePipeline);
+            
+            SDL_GPUTextureSamplerBinding texBindings[3] = {};
+            texBindings[0].texture = ssgiDenoiseTexture;  // Read from temporal output
+            texBindings[0].sampler = m_LinearSampler;
+            texBindings[1].texture = depthTexture;
+            texBindings[1].sampler = m_LinearSampler;
+            texBindings[2].texture = depthTexture;
+            texBindings[2].sampler = m_LinearSampler;
+            
+            SDL_BindGPUFragmentSamplers(pass, 0, texBindings, 3);
+            
+            struct DenoiseParams {
+                glm::vec4 screenSize;
+                float depthSigma;
+                float normalSigma;
+                float colorSigma;
+                int32_t kernelRadius;
+                int32_t passIndex;
+                int32_t _pad0;
+                int32_t _pad1;
+                int32_t _pad2;
+            } dParams;
+            
+            dParams.screenSize = glm::vec4(
+                static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                static_cast<float>(m_RenderDevice.GetRenderHeight()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderHeight())
+            );
+            dParams.depthSigma = 0.5f;
+            dParams.normalSigma = 0.5f;
+            dParams.colorSigma = 0.5f;
+            dParams.kernelRadius = 3;
+            dParams.passIndex = 0;  // Horizontal
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &dParams, sizeof(dParams));
+            
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            m_Stats.drawCalls++;
+            
+            SDL_EndGPURenderPass(pass);
+        }
+        
+        // ========== Pass 4: Spatial Denoising (Vertical) ==========
+        if (m_SSGIDenoisePipeline) {
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = ssgiDenoiseTexture;  // Final output
+            colorTarget.load_op = SDL_GPU_LOADOP_DONT_CARE;
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_SSGIDenoisePipeline);
+            
+            SDL_GPUTextureSamplerBinding texBindings[3] = {};
+            texBindings[0].texture = ssgiTexture;  // Read from horizontal pass
+            texBindings[0].sampler = m_LinearSampler;
+            texBindings[1].texture = depthTexture;
+            texBindings[1].sampler = m_LinearSampler;
+            texBindings[2].texture = depthTexture;
+            texBindings[2].sampler = m_LinearSampler;
+            
+            SDL_BindGPUFragmentSamplers(pass, 0, texBindings, 3);
+            
+            struct DenoiseParams {
+                glm::vec4 screenSize;
+                float depthSigma;
+                float normalSigma;
+                float colorSigma;
+                int32_t kernelRadius;
+                int32_t passIndex;
+                int32_t _pad0;
+                int32_t _pad1;
+                int32_t _pad2;
+            } dParams;
+            
+            dParams.screenSize = glm::vec4(
+                static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                static_cast<float>(m_RenderDevice.GetRenderHeight()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderWidth()),
+                1.0f / static_cast<float>(m_RenderDevice.GetRenderHeight())
+            );
+            dParams.depthSigma = 0.5f;
+            dParams.normalSigma = 0.5f;
+            dParams.colorSigma = 0.5f;
+            dParams.kernelRadius = 3;
+            dParams.passIndex = 1;  // Vertical
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &dParams, sizeof(dParams));
+            
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            m_Stats.drawCalls++;
+            
+            SDL_EndGPURenderPass(pass);
+        }
+        
+        // ========== Pass 5: Composite GI with Scene ==========
+        // We use additive blending to add GI to the scene that's already in hdrTexture
+        // This avoids the read-after-write hazard since we only sample from ssgiDenoiseTexture
+        if (m_SSGICompositePipeline) {
+            SDL_GPUColorTargetInfo colorTarget = {};
+            colorTarget.texture = hdrTexture;  // Write back to HDR texture
+            colorTarget.load_op = SDL_GPU_LOADOP_LOAD;  // Preserve existing content
+            colorTarget.store_op = SDL_GPU_STOREOP_STORE;
+            
+            SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmdBuffer, &colorTarget, 1, nullptr);
+            if (!pass) return;
+            
+            SDL_BindGPUGraphicsPipeline(pass, m_SSGICompositePipeline);
+            
+            // Only sample from SSGI result - the scene is loaded via LOAD_OP
+            SDL_GPUTextureSamplerBinding texBindings[2] = {};
+            texBindings[0].texture = ssgiDenoiseTexture; // Final GI
+            texBindings[0].sampler = m_LinearSampler;
+            texBindings[1].texture = ssgiDenoiseTexture; // Duplicate for padding (we use 2 in pipeline but only need 1)
+            texBindings[1].sampler = m_LinearSampler;
+            
+            SDL_BindGPUFragmentSamplers(pass, 0, texBindings, 2);
+            
+            struct CompositeParams {
+                float giIntensity;
+                float aoStrength;
+                int32_t debugMode;
+                int32_t _pad0;
+            } cParams;
+            
+            cParams.giIntensity = m_RenderDevice.GetSSGIIntensity();
+            cParams.aoStrength = 0.0f;
+            cParams.debugMode = m_RenderDevice.GetSSGIDebugMode();
+            
+            SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &cParams, sizeof(cParams));
+            
+            SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+            m_Stats.drawCalls++;
+            
+            SDL_EndGPURenderPass(pass);
+        }
+        
+        // Copy current SSGI result to history buffer for next frame's temporal pass
+        // We use ssgiDenoiseTexture as the final result, copy it to history
+        if (ssgiHistoryTexture && ssgiDenoiseTexture) {
+            SDL_GPUBlitInfo blitInfo = {};
+            blitInfo.source.texture = ssgiDenoiseTexture;
+            blitInfo.source.w = m_RenderDevice.GetRenderWidth() / 2;
+            blitInfo.source.h = m_RenderDevice.GetRenderHeight() / 2;
+            blitInfo.destination.texture = ssgiHistoryTexture;
+            blitInfo.destination.w = m_RenderDevice.GetRenderWidth() / 2;
+            blitInfo.destination.h = m_RenderDevice.GetRenderHeight() / 2;
+            blitInfo.load_op = SDL_GPU_LOADOP_DONT_CARE;
+            blitInfo.filter = SDL_GPU_FILTER_LINEAR;
+            
+            SDL_BlitGPUTexture(cmdBuffer, &blitInfo);
+        }
+        
+        // Update matrices for next frame
+        m_PrevViewProjMatrix = viewProj;
+        m_FrameIndex++;
+    }
+
     void RenderSystem::EndFrame() {
+        // SSGI pass - runs after main scene rendering, before bloom
+        if (m_RenderDevice.IsSSGIEnabled() && m_RenderDevice.IsHDREnabled()) {
+            RenderSSGIPass(m_CurrentView, m_CurrentProj);
+        }
+        
         // If HDR is enabled with bloom, run bloom pass first
         if (m_RenderDevice.IsHDREnabled() && m_RenderDevice.IsBloomEnabled()) {
             RenderBloomPass();

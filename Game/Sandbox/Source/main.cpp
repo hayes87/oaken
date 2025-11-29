@@ -26,6 +26,7 @@ std::shared_ptr<Resources::Animation> g_RunAnimation;
 // Test level meshes
 std::shared_ptr<Resources::Mesh> g_GroundMesh;
 std::shared_ptr<Resources::Mesh> g_CubeMesh;
+std::shared_ptr<Resources::Mesh> g_SponzaMesh;
 
 // Helper to create a ground plane mesh
 std::shared_ptr<Resources::Mesh> CreateGroundPlane(Resources::ResourceManager& rm, float size, int subdivisions) {
@@ -155,6 +156,17 @@ GAME_EXPORT void GameInit(Engine& engine) {
             LOG_INFO("Successfully loaded test mesh: {}", meshPath);
         } else {
             LOG_ERROR("Failed to load mesh: {}", meshPath);
+        }
+    }
+
+    // Load Sponza Environment Mesh
+    std::string sponzaPath = "Assets/Models/Sponza.oakmesh";
+    if (std::filesystem::exists(sponzaPath)) {
+        g_SponzaMesh = engine.GetResourceManager().LoadMesh(sponzaPath);
+        if (g_SponzaMesh) {
+            LOG_INFO("Successfully loaded Sponza mesh: {}", sponzaPath);
+        } else {
+            LOG_ERROR("Failed to load Sponza mesh: {}", sponzaPath);
         }
     }
 
@@ -331,6 +343,14 @@ GAME_EXPORT void GameInit(Engine& engine) {
         LOG_INFO("Created Ground plane with physics");
     }
     
+    // Create Sponza environment mesh
+    if (g_SponzaMesh) {
+        engine.GetContext().World->entity("Sponza")
+            .set<LocalTransform>({ {0.0f, -0.95f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.02f, 0.02f, 0.02f} })  // Scale down from cm to meters
+            .set<MeshComponent>({g_SponzaMesh});
+        LOG_INFO("Created Sponza environment mesh");
+    }
+    
     // Create procedural cube mesh for obstacles
     g_CubeMesh = CreateCube(engine.GetResourceManager(), 1.0f);
     if (g_CubeMesh) {
@@ -400,17 +420,16 @@ GAME_EXPORT void GameInit(Engine& engine) {
     if (engine.GetContext().World->count<DirectionalLight>() == 0) {
         engine.GetContext().World->entity("Sun")
             .set<DirectionalLight>({
-                glm::normalize(glm::vec3(-0.5f, -1.0f, -0.3f)),  // direction (pointing down and to the side)
+                glm::normalize(glm::vec3(-0.2f, -1.0f, -0.1f)),  // direction (pointing down and to the side)
                 {1.0f, 0.95f, 0.9f},    // warm sunlight color
-                1.0f,                    // intensity
-                {0.15f, 0.15f, 0.2f}    // ambient (slight blue tint)
+                3.0f,                    // intensity
+                {0.02f, 0.02f, 0.03f}   // very low ambient for darker shadows
             });
         LOG_INFO("Created Sun directional light");
     }
     
     // Add multiple point lights to test Forward+ rendering
-    // DISABLED: Point lights temporarily disabled to debug shadows
-    /*
+
     if (engine.GetContext().World->count<PointLight>() == 0) {
         // Create a grid of colored point lights
         const int numLightsPerRow = 4;
@@ -443,12 +462,18 @@ GAME_EXPORT void GameInit(Engine& engine) {
                         2.0f,       // intensity
                         12.0f,      // radius
                         2.0f        // falloff
+                    })
+                    .set<OrbitComponent>({
+                        {posX, posZ},           // center (original XZ position)
+                        2.0f,                   // orbit radius
+                        0.5f + (x * 0.1f),      // speed (vary by light)
+                        static_cast<float>(x + z) * 0.5f  // phase offset
                     });
             }
         }
         LOG_INFO("Created {} point lights for Forward+ testing", lightIndex);
     }
-    */
+ 
 
     // Create a test entity with AttributeSet if it doesn't exist
     if (engine.GetContext().World->count<AttributeSet>() == 0) {

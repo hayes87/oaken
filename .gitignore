@@ -26,3 +26,5 @@ cmake-build-debug/
 
 # Config
 imgui.ini
+Game/Sandbox/Assets/Models/*.fbx
+Game/Sandbox/Assets/Models/*.oakmesh
