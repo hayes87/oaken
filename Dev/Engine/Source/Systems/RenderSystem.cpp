@@ -3051,10 +3051,10 @@ namespace Systems {
                 1.0f / static_cast<float>(m_RenderDevice.GetRenderWidth()),
                 1.0f / static_cast<float>(m_RenderDevice.GetRenderHeight())
             );
-            dParams.depthSigma = 0.5f;
+            dParams.depthSigma = 0.5f;    // Depth tolerance
             dParams.normalSigma = 0.5f;
-            dParams.colorSigma = 0.5f;
-            dParams.kernelRadius = 3;
+            dParams.colorSigma = 0.3f;    // Preserve color detail
+            dParams.kernelRadius = 4;     // Larger kernel for better denoising
             dParams.passIndex = 0;  // Horizontal
             
             SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &dParams, sizeof(dParams));
@@ -3105,10 +3105,10 @@ namespace Systems {
                 1.0f / static_cast<float>(m_RenderDevice.GetRenderWidth()),
                 1.0f / static_cast<float>(m_RenderDevice.GetRenderHeight())
             );
-            dParams.depthSigma = 0.5f;
+            dParams.depthSigma = 0.5f;    // Depth tolerance
             dParams.normalSigma = 0.5f;
-            dParams.colorSigma = 0.5f;
-            dParams.kernelRadius = 3;
+            dParams.colorSigma = 0.3f;    // Preserve color detail
+            dParams.kernelRadius = 4;     // Larger kernel for better denoising
             dParams.passIndex = 1;  // Vertical
             
             SDL_PushGPUFragmentUniformData(cmdBuffer, 0, &dParams, sizeof(dParams));
